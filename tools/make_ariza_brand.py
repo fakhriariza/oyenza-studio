@@ -1,7 +1,8 @@
-"""Draw Ariza Studio's logo: the Oyenza Studio mark, with the name changed everywhere.
+"""Draw Ariza Studio's logo: Oyenza Studio's tile, an "A" where the cat was, a new name.
 
-Same visual system as Oyenza Studio (docs/brand): the orange tile, the island hanging from its top edge
-playing music, the white cat below it. Only the wordmark is new: "Ariza Studio", set the way the site sets
+Same visual system as Oyenza Studio (docs/brand): the orange tile and the island hanging from its top edge
+playing music. Inside it, Ariza's own mark -- an "A" monogram -- takes Oyen's place, so the tile reads as the
+same family without borrowing the mascot. The name is "Ariza Studio", set the way the site sets
 "Oyenza Studio" -- semibold, -0.01em tracking, ink #171717 -- and turned into outlines so the files need no
 font installed.
 
@@ -13,8 +14,8 @@ Writes brand/ariza/:
   ariza-studio-lockup{,-dark}.svg/png  tile + wordmark, for light and for dark backgrounds
   preview.png                          the sheet: both lockups, the mark, the palette
 
-The tile is drawn by tools/make_brand.py; this file only changes its <title> and its ids, then scales it, so
-the two never drift apart.
+The island, the album cover and the equalizer come from tools/make_brand.py, unchanged: this file takes its
+tile, paints Oyen out of it and puts the monogram in his place, so the two never drift apart.
 
 The wordmark is Inter (SIL OFL), the first fallback in Oyenza Studio's own font stack. SF Pro Text, which the
 site uses, may not be redistributed as outlines.
@@ -43,6 +44,9 @@ GAP = 0.60  # space between the tile's ink and the wordmark's ink, in cap height
 TRACK = -0.01  # letter-spacing, in em -- the site's .side-brand
 INK, INK_DARK = "#171717", "#FFFFFF"
 NAME = "Ariza Studio"
+MONO_W = 700  # the monogram is a step bolder than the name: a mark has to hold at 32 px
+MONO_CAP = 0.475  # its cap height, as a fraction of the tile's visible side
+MONO_CY = (mb.ISL_H + 1) / 2  # its centre: halfway down the field the island leaves under itself
 
 FONT_CANDIDATES = [
     Path.home() / "Library/Fonts/Inter-VariableFont_opsz,wght.ttf",
@@ -133,6 +137,22 @@ def _flatten(contour, steps: int = 18) -> list[tuple[float, float]]:
     return pts
 
 
+def _path(contours, X, Y) -> str:
+    """Contours as svg path data, through the two coordinate functions."""
+    out = []
+    for contour in contours:
+        out.append(f"M{X(contour[0][1][0])} {Y(contour[0][1][1])}")
+        for s in contour:
+            if s[0] == "L":
+                out.append(f"L{X(s[2][0])} {Y(s[2][1])}")
+            elif s[0] == "Q":
+                out.append(f"Q{X(s[2][0])} {Y(s[2][1])} {X(s[3][0])} {Y(s[3][1])}")
+            else:
+                out.append(f"C{X(s[2][0])} {Y(s[2][1])} {X(s[3][0])} {Y(s[3][1])} {X(s[4][0])} {Y(s[4][1])}")
+        out.append("Z")
+    return "".join(out)
+
+
 class Wordmark:
     """NAME laid out with Inter's advances and TRACK tracking, in font units, baseline at y = 0."""
 
@@ -167,22 +187,9 @@ class Wordmark:
     def path(self, size: float, x0: float, baseline: float) -> str:
         """Every contour as one svg path in drawing space; TrueType windings punch the counters."""
         k = size / self.upm
-        X = lambda v, dx: f"{x0 + (v + dx) * k:.2f}"
-        Y = lambda v: f"{baseline - v * k:.2f}"
-        out = []
-        for _, contours, dx, _ in self.shapes:
-            for contour in contours:
-                out.append(f"M{X(contour[0][1][0], dx)} {Y(contour[0][1][1])}")
-                for s in contour:
-                    if s[0] == "L":
-                        out.append(f"L{X(s[2][0], dx)} {Y(s[2][1])}")
-                    elif s[0] == "Q":
-                        out.append(f"Q{X(s[2][0], dx)} {Y(s[2][1])} {X(s[3][0], dx)} {Y(s[3][1])}")
-                    else:
-                        out.append(f"C{X(s[2][0], dx)} {Y(s[2][1])} {X(s[3][0], dx)} {Y(s[3][1])} "
-                                   f"{X(s[4][0], dx)} {Y(s[4][1])}")
-                out.append("Z")
-        return "".join(out)
+        return "".join(_path(contours, lambda v, d=dx: f"{x0 + (v + d) * k:.2f}",
+                             lambda v: f"{baseline - v * k:.2f}")
+                       for _, contours, dx, _ in self.shapes)
 
     def pair_gaps(self) -> list[tuple[str, float]]:
         """Ink gap between neighbouring letters, in em: the check that tracking did not collide them."""
@@ -234,11 +241,89 @@ def fill_nonzero(mask: Image.Image, polys: list[list[tuple[float, float]]], valu
 # --- the tile ------------------------------------------------------------------------------------
 
 def icon_inner() -> str:
-    """The tile's svg body from make_brand, with this brand's title and ids."""
+    """make_brand's tile: its island, cover and bars, this brand's title and ids, Ariza's mark."""
     svg = mb.logo_svg().replace("<title>Oyenza Studio</title>", "")
     body = re.sub(r"^<svg[^>]*>", "", svg).rsplit("</svg>", 1)[0]
     body = body.replace('id="tile"', 'id="ariza-tile"').replace("url(#tile)", "url(#ariza-tile)")
-    return body.replace('id="cover"', 'id="ariza-cover"').replace("url(#cover)", "url(#ariza-cover)")
+    body = body.replace('id="cover"', 'id="ariza-cover"').replace("url(#cover)", "url(#ariza-cover)")
+    body, found = _OYEN.subn(lambda _: mono().svg(ICON), body, count=1)
+    if found != 1:
+        sys.exit("could not find Oyen in make_brand's tile: the mark in make_brand.py has changed")
+    return body
+
+
+class Monogram:
+    """Ariza's mark: an "A" in the tile, where Oyen used to be.
+
+    The letter is Inter's own outline (the name's typeface), not a drawing, so its curves and its ink are
+    the same ones the wordmark is set from.
+    """
+
+    def __init__(self, wght: int = MONO_W):
+        font = _static_font(wght)
+        self.contours = _contours(font, font.getBestCmap()[ord("A")])
+        self.ink = _bounds(self.contours)
+
+    def place(self, s: float) -> tuple[float, float, float]:
+        """Glyph origin and scale that centre it in the field under the island."""
+        inset, t = mb.INSET * s, s * (1 - 2 * mb.INSET)
+        k = MONO_CAP * t / (self.ink[3] - self.ink[1])
+        cx = s / 2 - (self.ink[0] + self.ink[2]) / 2 * k
+        cy = inset + MONO_CY * t + (self.ink[1] + self.ink[3]) / 2 * k
+        return cx, cy, k
+
+    def placed(self, s: float) -> list[list[tuple[float, float]]]:
+        cx, cy, k = self.place(s)
+        return [[(cx + x * k, cy - y * k) for x, y in _flatten(c)] for c in self.contours]
+
+    def svg(self, s: float) -> str:
+        cx, cy, k = self.place(s)
+        return (f'<g transform="translate({cx:.1f} {cy:.1f}) scale({k:.5f} -{k:.5f})">'
+                f'<path d="{_path(self.contours, lambda v: f"{v:.1f}", lambda v: f"{v:.1f}")}" '
+                f'fill="#fff"/></g>')
+
+
+_MONO = None
+
+
+def mono() -> Monogram:
+    global _MONO
+    if _MONO is None:
+        _MONO = Monogram()
+    return _MONO
+
+
+# make_brand ends its tile with Oyen, at this exact transform; that whole group is what gets replaced.
+_OYEN = re.compile(r'<g transform="translate\([^)]+\) scale\([^)]+\)"><path d="[^"]+" fill="#fff" '
+                   r'fill-rule="evenodd"/></g>')
+
+
+def _oyen_polys(s: float) -> list[list[tuple[float, float]]]:
+    """Oyen's silhouette, in the same pixels make_brand draws him at: what gets painted back to orange."""
+    L = mb.layout(s)
+    k = mb.OYEN_W * L["t"] / mb.MARK_W
+    ox, oy = s / 2, L["inset"] + mb.OYEN_CY * L["t"] - mb.MARK_CY * k
+    return [[(ox + x * k, oy + y * k) for x, y in poly]
+            for d in mb.mark_paths("oyen-mark-white.svg") for poly in mb.flatten(d)]
+
+
+def tile_at(size: int) -> Image.Image:
+    """make_brand's tile with Oyen taken out and the monogram put in his place.
+
+    Drawn at one pixel per unit and left aliased on purpose: every caller scales it down, and that is
+    where its edges get their anti-aliasing.
+    """
+    tile = mb.draw_logo(size, ss=1)
+    erase = Image.new("L", tile.size, 0)
+    d = ImageDraw.Draw(erase)
+    for poly in _oyen_polys(size):
+        d.polygon(poly, fill=255)
+    tile.paste(mb.ORANGE, (0, 0), erase)
+
+    mask = Image.new("L", tile.size, 0)
+    fill_nonzero(mask, mono().placed(size))
+    tile.paste("white", (0, 0), mask)
+    return tile
 
 
 def icon_svg() -> str:
@@ -290,7 +375,7 @@ def lockup_png(mark: Wordmark, ink: str, width: int = 2048, ss: int = 3) -> Imag
     canvas = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
 
     tile_size = round(ICON * k)
-    tile = mb.draw_logo(tile_size, ss=2)
+    tile = tile_at(tile_size)
     canvas.alpha_composite(tile, (-round(ox * k), -round(oy * k)))
 
     mask = Image.new("L", (cw, ch), 0)
@@ -377,10 +462,11 @@ def main() -> int:
     OUT.joinpath("ariza-mark.svg").write_text(icon_svg())
     pngs = {}
     for n in (1024, 512, 256, 128, 64, 32, 16):
-        pngs[n] = mb.draw_logo(n, ss=4 if n >= 512 else 8)
+        pngs[n] = tile_at(n * (2 if n >= 512 else 8)).resize((n, n), Image.LANCZOS)
         pngs[n].save(OUT / f"ariza-mark-{n}.png", optimize=True)
 
-    ico = {n: mb.draw_logo(n, ss=8) for n in (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)}
+    ico = {n: tile_at(n * (8 if n <= 64 else 4)).resize((n, n), Image.LANCZOS)
+           for n in (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)}
     ico[256].save(OUT / "ariza-studio-icon.ico", format="ICO", sizes=[(n, n) for n in ico],
                   append_images=[ico[n] for n in sorted(ico)[:-1]])
 
@@ -394,7 +480,7 @@ def main() -> int:
 
     lab = ImageFont.truetype(str(CACHE / "Inter-600.ttf"), 34)
     small = ImageFont.truetype(str(CACHE / "Inter-600.ttf"), 26)
-    icons = {200: mb.draw_logo(200, ss=6), **{n: pngs[n] for n in (128, 64, 32)}}
+    icons = {200: tile_at(1200).resize((200, 200), Image.LANCZOS), **{n: pngs[n] for n in (128, 64, 32)}}
     sheet = preview(lab, small, light, dark, icons)
     sheet.save(OUT / "preview.png", optimize=True)
 
