@@ -91,9 +91,9 @@ impl FastingState {
         } else if hours < 12.0 {
             ("Pembakaran Lemak Aktif", "Glikogen hati menipis, lemak mulai dibakar (Gluconeogenesis)")
         } else if hours < 16.0 {
-            ("Ketosis Dimulai 🔥", "Produksi keton meningkat, fokus meningkat & bakar lemak intensif")
+            ("Ketosis Dimulai", "Produksi keton meningkat, fokus meningkat & bakar lemak intensif")
         } else if hours < 24.0 {
-            ("Autofagi & Cell Repair 🧬", "Sel-sel rusak didaur ulang dan regenerasi sel baru aktif")
+            ("Autofagi & Cell Repair", "Sel-sel rusak didaur ulang dan regenerasi sel baru aktif")
         } else {
             ("Deep Ketosis & GH Boost", "Ketosis maksimal, hormon pertumbuhan (GH) meningkat tajam")
         }

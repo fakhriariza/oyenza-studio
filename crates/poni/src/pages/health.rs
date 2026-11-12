@@ -1,4 +1,5 @@
 //! Fitness, Intermittent Fasting, Weight Tracker & Food Calorie Estimator page for Ariza Studio.
+//! Mengikuti Apple / Poni Dynamic Island design system (palet warna asli, tipografi San Francisco, ikon vektor).
 
 use crate::gfx::{TextStyle, Weight};
 use crate::icons::Icon;
@@ -50,26 +51,26 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     let accent = st.accent;
     let tab = st.store.fitness.active_tab;
 
-    // 1. Sub-navigation tabs at the top
+    // 1. Sub-navigation tabs at the top (clean segmented style)
     let tab_w = 110.0;
-    let tab_gap = 8.0;
-    let nav_y = area.y + 4.0;
+    let tab_gap = 6.0;
+    let nav_y = area.y + 2.0;
 
     let tabs = [
-        ("⏱️ Fasting", 0),
-        ("⚖️ Berat Badan", 1),
-        ("🥗 Kalori & Makanan", 2),
+        ("Fasting", 0, Icon::Timer),
+        ("Berat Badan", 1, Icon::Steps),
+        ("Nutrisi", 2, Icon::Sliders),
     ];
 
-    let mut tx = area.x + 4.0;
-    for (label, idx) in tabs {
+    let mut tx = area.x;
+    for (label, idx, icon) in tabs {
         let style = if tab == idx {
             PillStyle::Primary(accent)
         } else {
             PillStyle::Utility
         };
         let b = Rect::new(tx, nav_y, tab_w, PILL_SMALL);
-        if ui.pill(wid_n("fitness.nav", idx as u64), b, label, None, style).clicked {
+        if ui.pill(wid_n("fitness.nav", idx as u64), b, label, Some(icon), style).clicked {
             st.store.fitness.active_tab = idx;
             st.save();
         }
@@ -77,7 +78,7 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     }
 
     let content_y = nav_y + PILL_SMALL + 10.0;
-    let content_rect = Rect::new(area.x + 4.0, content_y, area.w - 8.0, area.bottom() - content_y);
+    let content_rect = Rect::new(area.x, content_y, area.w, area.bottom() - content_y);
 
     match tab {
         0 => draw_fasting(ui, st, content_rect, accent),
@@ -97,20 +98,20 @@ fn draw_fasting(ui: &mut Ui, st: &mut AppState, r: Rect, accent: Color) {
 
     // Protocol selector pills on top right
     let protocols = [("16:8", 16), ("18:6", 18), ("20:4", 20), ("24h", 24)];
-    let proto_w = 50.0;
-    let mut px = r.right() - (proto_w * 4.0 + 18.0);
+    let proto_w = 46.0;
+    let mut px = r.right() - (proto_w * 4.0 + 14.0);
     for (name, h) in protocols {
         let style = if target_hours == h {
-            PillStyle::Primary(palette::ORANGE)
+            PillStyle::Primary(accent)
         } else {
             PillStyle::Utility
         };
-        let b = Rect::new(px, r.y + 2.0, proto_w, 22.0);
+        let b = Rect::new(px, r.y, proto_w, 22.0);
         if ui.pill(wid_n("fasting.proto", h as u64), b, name, None, style).clicked {
             st.store.fitness.fasting.target_hours = h;
             st.save();
         }
-        px += proto_w + 6.0;
+        px += proto_w + 4.0;
     }
 
     if is_fasting {
@@ -124,42 +125,43 @@ fn draw_fasting(ui: &mut Ui, st: &mut AppState, r: Rect, accent: Color) {
         let (stage_title, stage_desc) = fast.stage(now);
 
         // Big elapsed timer
-        let timer_str = format!("{:02}j {:02}m {:02}s", hours, mins, secs);
-        let header = TextStyle::headline().weight(Weight::Bold).color(palette::GREEN);
-        ui.c.text(&timer_str, Rect::new(r.x, r.y, 220.0, 24.0), &header);
+        let timer_str = format!("{:02}:{:02}:{:02}", hours, mins, secs);
+        let header = TextStyle::headline().weight(Weight::Semibold).color(palette::TEXT);
+        ui.c.text(&timer_str, Rect::new(r.x, r.y, 160.0, 24.0), &header);
 
-        let sub_info = format!("Target: {} jam puasa · {}% tercapai", target_hours, pct);
-        ui.c.text(&sub_info, Rect::new(r.x, r.y + 26.0, 260.0, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+        let sub_info = format!("Target {} jam · {}% tercapai", target_hours, pct);
+        ui.c.text(&sub_info, Rect::new(r.x, r.y + 24.0, 240.0, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
 
         // Fasting stage badge
-        let stage_box = Rect::new(r.x, r.y + 48.0, r.w, 48.0);
-        ui.c.fill_rrect(stage_box, 8.0, Color::white(0.06));
-        ui.c.text(stage_title, Rect::new(stage_box.x + 12.0, stage_box.y + 6.0, stage_box.w - 24.0, 18.0), &TextStyle::body().weight(Weight::Bold).color(palette::ORANGE));
-        ui.c.text(stage_desc, Rect::new(stage_box.x + 12.0, stage_box.y + 26.0, stage_box.w - 24.0, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+        let stage_box = Rect::new(r.x, r.y + 46.0, r.w, 46.0);
+        ui.c.fill_rrect(stage_box, 8.0, palette::SURFACE);
+        ui.c.stroke_rrect(stage_box, 8.0, palette::BORDER, 1.0);
+        ui.c.text(stage_title, Rect::new(stage_box.x + 12.0, stage_box.y + 6.0, stage_box.w - 24.0, 16.0), &TextStyle::body().weight(Weight::Semibold).color(accent));
+        ui.c.text(stage_desc, Rect::new(stage_box.x + 12.0, stage_box.y + 24.0, stage_box.w - 24.0, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
 
         // Action button: Stop Fast
-        let btn_w = 260.0;
-        let btn_r = Rect::new(r.x, r.y + 106.0, btn_w, 32.0);
-        if ui.pill(wid("fasting.toggle"), btn_r, "Selesai Puasa (Buka Jendela Makan)", Some(Icon::Check), PillStyle::Primary(palette::RED)).clicked {
+        let btn_w = 200.0;
+        let btn_r = Rect::new(r.x, r.y + 102.0, btn_w, 28.0);
+        if ui.pill(wid("fasting.toggle"), btn_r, "Selesai Puasa", Some(Icon::Check), PillStyle::Neutral).clicked {
             st.store.fitness.fasting.stop(now);
             st.save();
         }
     } else {
         // Eating window open
-        let header = TextStyle::headline().weight(Weight::Bold).color(palette::ORANGE);
-        ui.c.text("Jendela Makan Terbuka 🍽️", Rect::new(r.x, r.y, 260.0, 24.0), &header);
-        ui.c.text("Silakan makan sehat sesuai kebutuhan nutrisi harian kamu.", Rect::new(r.x, r.y + 26.0, r.w, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+        ui.c.text("Jendela Makan", Rect::new(r.x, r.y, 200.0, 22.0), &TextStyle::headline().weight(Weight::Semibold).color(palette::TEXT));
+        ui.c.text("Konsumsi nutrisi sehat seimbang sesuai target harian", Rect::new(r.x, r.y + 22.0, r.w, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
 
-        let card = Rect::new(r.x, r.y + 48.0, r.w, 48.0);
-        ui.c.fill_rrect(card, 8.0, Color::white(0.06));
-        ui.c.text("Target Puasa Berikutnya:", Rect::new(card.x + 12.0, card.y + 6.0, 200.0, 18.0), &TextStyle::body().weight(Weight::Bold));
-        let p_desc = format!("Protokol {} jam puasa (Fasting window). Mulai saat selesai makan terakhir.", target_hours);
-        ui.c.text(&p_desc, Rect::new(card.x + 12.0, card.y + 26.0, card.w - 24.0, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+        let card = Rect::new(r.x, r.y + 46.0, r.w, 46.0);
+        ui.c.fill_rrect(card, 8.0, palette::SURFACE);
+        ui.c.stroke_rrect(card, 8.0, palette::BORDER, 1.0);
+        ui.c.text("Jadwal Puasa Berikutnya", Rect::new(card.x + 12.0, card.y + 6.0, 200.0, 16.0), &TextStyle::body().weight(Weight::Semibold).color(palette::TEXT));
+        let p_desc = format!("Protokol {} jam puasa. Mulai saat selesai makan terakhir.", target_hours);
+        ui.c.text(&p_desc, Rect::new(card.x + 12.0, card.y + 24.0, card.w - 24.0, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
 
         // Action button: Start Fast
-        let btn_w = 240.0;
-        let btn_r = Rect::new(r.x, r.y + 106.0, btn_w, 32.0);
-        if ui.pill(wid("fasting.toggle"), btn_r, "Mulai Puasa Sekarang (Start Fast)", Some(Icon::Play), PillStyle::Primary(accent)).clicked {
+        let btn_w = 180.0;
+        let btn_r = Rect::new(r.x, r.y + 102.0, btn_w, 28.0);
+        if ui.pill(wid("fasting.toggle"), btn_r, "Mulai Puasa", Some(Icon::Play), PillStyle::Primary(accent)).clicked {
             st.store.fitness.fasting.start(now);
             st.save();
         }
@@ -177,37 +179,35 @@ fn draw_weight(ui: &mut Ui, st: &mut AppState, r: Rect, accent: Color) {
 
     // Stats bar: Current | Target | Progress
     let card_w = (r.w - 16.0) / 3.0;
-    let card_h = 48.0;
+    let card_h = 46.0;
 
     // Card 1: Current Weight
     let c1 = Rect::new(r.x, r.y, card_w, card_h);
-    ui.c.fill_rrect(c1, 8.0, Color::white(0.06));
-    ui.c.text("Saat Ini", Rect::new(c1.x + 8.0, c1.y + 4.0, c1.w, 14.0), &TextStyle::footnote().color(palette::TEXT_DIM));
-    ui.c.text(&format!("{:.1} kg", current_weight), Rect::new(c1.x + 8.0, c1.y + 20.0, c1.w, 22.0), &TextStyle::headline().weight(Weight::Bold).color(accent));
+    ui.c.fill_rrect(c1, 8.0, palette::SURFACE);
+    ui.c.stroke_rrect(c1, 8.0, palette::BORDER, 1.0);
+    ui.c.text("Saat Ini", Rect::new(c1.x + 10.0, c1.y + 4.0, c1.w, 14.0), &TextStyle::caption().color(palette::TEXT_FAINT));
+    ui.c.text(&format!("{:.1} kg", current_weight), Rect::new(c1.x + 10.0, c1.y + 18.0, c1.w, 22.0), &TextStyle::headline().weight(Weight::Semibold).color(palette::TEXT));
 
     // Card 2: Target Weight
     let c2 = Rect::new(c1.right() + 8.0, r.y, card_w, card_h);
-    ui.c.fill_rrect(c2, 8.0, Color::white(0.06));
-    ui.c.text("Target", Rect::new(c2.x + 8.0, c2.y + 4.0, c2.w, 14.0), &TextStyle::footnote().color(palette::TEXT_DIM));
-    ui.c.text(&format!("{:.1} kg", target_weight), Rect::new(c2.x + 8.0, c2.y + 20.0, c2.w, 22.0), &TextStyle::headline().weight(Weight::Bold));
+    ui.c.fill_rrect(c2, 8.0, palette::SURFACE);
+    ui.c.stroke_rrect(c2, 8.0, palette::BORDER, 1.0);
+    ui.c.text("Target", Rect::new(c2.x + 10.0, c2.y + 4.0, c2.w, 14.0), &TextStyle::caption().color(palette::TEXT_FAINT));
+    ui.c.text(&format!("{:.1} kg", target_weight), Rect::new(c2.x + 10.0, c2.y + 18.0, c2.w, 22.0), &TextStyle::headline().weight(Weight::Semibold).color(accent));
 
     // Card 3: Total Diff
     let diff = current_weight - initial_weight;
     let c3 = Rect::new(c2.right() + 8.0, r.y, card_w, card_h);
-    ui.c.fill_rrect(c3, 8.0, Color::white(0.06));
-    ui.c.text("Perubahan", Rect::new(c3.x + 8.0, c3.y + 4.0, c3.w, 14.0), &TextStyle::footnote().color(palette::TEXT_DIM));
-    let (diff_str, diff_col) = if diff <= 0.0 {
-        (format!("{:.1} kg", diff), palette::GREEN)
-    } else {
-        (format!("+{:.1} kg", diff), palette::RED)
-    };
-    ui.c.text(&diff_str, Rect::new(c3.x + 8.0, c3.y + 20.0, c3.w, 22.0), &TextStyle::headline().weight(Weight::Bold).color(diff_col));
+    ui.c.fill_rrect(c3, 8.0, palette::SURFACE);
+    ui.c.stroke_rrect(c3, 8.0, palette::BORDER, 1.0);
+    ui.c.text("Perubahan", Rect::new(c3.x + 10.0, c3.y + 4.0, c3.w, 14.0), &TextStyle::caption().color(palette::TEXT_FAINT));
+    let diff_str = if diff <= 0.0 { format!("{:.1} kg", diff) } else { format!("+{:.1} kg", diff) };
+    ui.c.text(&diff_str, Rect::new(c3.x + 10.0, c3.y + 18.0, c3.w, 22.0), &TextStyle::headline().weight(Weight::Semibold).color(palette::TEXT));
 
     // Quick log today's weight row
     let input_y = c1.bottom() + 10.0;
-    ui.c.text("Catat Timbangan Hari Ini:", Rect::new(r.x, input_y, 200.0, 18.0), &TextStyle::body().weight(Weight::Bold));
+    ui.c.text("Catat Timbangan Hari Ini", Rect::new(r.x, input_y, 200.0, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
 
-    // Initial draft if not initialized
     if st.ui.fitness_weight_input < 30.0 {
         st.ui.fitness_weight_input = current_weight;
     }
@@ -215,21 +215,22 @@ fn draw_weight(ui: &mut Ui, st: &mut AppState, r: Rect, accent: Color) {
     let mut bx = r.x;
     let step_btns = [("-0.5", -0.5f32), ("-0.1", -0.1f32), ("+0.1", 0.1f32), ("+0.5", 0.5f32)];
     for (label, val) in step_btns {
-        let btn_r = Rect::new(bx, input_y + 22.0, 48.0, 26.0);
+        let btn_r = Rect::new(bx, input_y + 20.0, 48.0, 26.0);
         if ui.pill(wid_n("weight.step", (val * 10.0) as i64 as u64), btn_r, label, None, PillStyle::Utility).clicked {
             st.ui.fitness_weight_input = (st.ui.fitness_weight_input + val).clamp(30.0, 250.0);
         }
-        bx += 54.0;
+        bx += 52.0;
     }
 
     // Weight display pill
-    let val_box = Rect::new(bx + 4.0, input_y + 22.0, 80.0, 26.0);
-    ui.c.fill_rrect(val_box, 6.0, Color::white(0.12));
-    ui.c.text(&format!("{:.1} kg", st.ui.fitness_weight_input), Rect::new(val_box.x, val_box.y + 3.0, val_box.w, 20.0), &TextStyle::body().weight(Weight::Bold).color(accent));
+    let val_box = Rect::new(bx + 4.0, input_y + 20.0, 76.0, 26.0);
+    ui.c.fill_rrect(val_box, 6.0, palette::SURFACE);
+    ui.c.stroke_rrect(val_box, 6.0, palette::BORDER, 1.0);
+    ui.c.text(&format!("{:.1} kg", st.ui.fitness_weight_input), Rect::new(val_box.x, val_box.y + 4.0, val_box.w, 18.0), &TextStyle::body().weight(Weight::Semibold).color(palette::TEXT).center());
 
     // Save button
-    let save_r = Rect::new(val_box.right() + 10.0, input_y + 22.0, 110.0, 26.0);
-    if ui.pill(wid("weight.save"), save_r, "Simpan Log", Some(Icon::Check), PillStyle::Primary(palette::GREEN)).clicked {
+    let save_r = Rect::new(val_box.right() + 8.0, input_y + 20.0, 100.0, 26.0);
+    if ui.pill(wid("weight.save"), save_r, "Simpan", Some(Icon::Check), PillStyle::Primary(accent)).clicked {
         let today = st.local.day_key();
         let new_w = st.ui.fitness_weight_input;
         if st.store.fitness.initial_weight.is_none() {
@@ -245,13 +246,13 @@ fn draw_weight(ui: &mut Ui, st: &mut AppState, r: Rect, accent: Color) {
     }
 
     // Target adjustment pills
-    let tgt_y = input_y + 56.0;
-    ui.c.text("Atur Target Berat:", Rect::new(r.x, tgt_y, 140.0, 18.0), &TextStyle::footnote().color(palette::TEXT_DIM));
-    if ui.pill(wid("weight.tgt.minus"), Rect::new(r.x + 140.0, tgt_y - 2.0, 50.0, 22.0), "-1 kg", None, PillStyle::Utility).clicked {
+    let tgt_y = input_y + 54.0;
+    ui.c.text("Atur Target Berat", Rect::new(r.x, tgt_y, 130.0, 16.0), &TextStyle::caption().color(palette::TEXT_FAINT));
+    if ui.pill(wid("weight.tgt.minus"), Rect::new(r.x + 130.0, tgt_y - 2.0, 50.0, 22.0), "-1 kg", None, PillStyle::Utility).clicked {
         st.store.fitness.target_weight = Some((target_weight - 1.0).max(30.0));
         st.save();
     }
-    if ui.pill(wid("weight.tgt.plus"), Rect::new(r.x + 196.0, tgt_y - 2.0, 50.0, 22.0), "+1 kg", None, PillStyle::Utility).clicked {
+    if ui.pill(wid("weight.tgt.plus"), Rect::new(r.x + 184.0, tgt_y - 2.0, 50.0, 22.0), "+1 kg", None, PillStyle::Utility).clicked {
         st.store.fitness.target_weight = Some((target_weight + 1.0).min(200.0));
         st.save();
     }
@@ -283,17 +284,17 @@ fn draw_food_calories(ui: &mut Ui, st: &mut AppState, r: Rect, accent: Color) {
         format!("(Kelebihan {} kkal)", total_cal - target_cal)
     };
 
-    ui.c.text(&cal_str, Rect::new(r.x, r.y, 200.0, 18.0), &TextStyle::body().weight(Weight::Bold).color(palette::GREEN));
-    ui.c.text(&rem_str, Rect::new(r.x + 204.0, r.y + 2.0, 160.0, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+    ui.c.text(&cal_str, Rect::new(r.x, r.y, 180.0, 18.0), &TextStyle::body().weight(Weight::Semibold).color(palette::TEXT));
+    ui.c.text(&rem_str, Rect::new(r.x + 184.0, r.y + 2.0, 160.0, 16.0), &TextStyle::footnote().color(palette::TEXT_FAINT));
 
     // Macros row
     let macro_str = format!("Protein: {:.0}g  ·  Karbo: {:.0}g  ·  Lemak: {:.0}g", total_prot, total_carb, total_fat);
-    ui.c.text(&macro_str, Rect::new(r.x, r.y + 20.0, r.w, 16.0), &TextStyle::footnote().color(accent));
+    ui.c.text(&macro_str, Rect::new(r.x, r.y + 20.0, r.w, 16.0), &TextStyle::caption().color(palette::TEXT_DIM));
 
     // 2. Text input row for food estimation
     let input_y = r.y + 40.0;
     let input_r = Rect::new(r.x, input_y, r.w - 74.0, 28.0);
-    let placeholder = "Ketik makanan (cth: nasi padang, 2 telur rebus, ayam geprek, kopi susu)...";
+    let placeholder = "Catat makanan (cth: nasi padang, 2 telur rebus, ayam bakar, kopi susu)...";
 
     let resp = ui.text_input_row(
         wid("fitness.food_input"),
@@ -306,7 +307,7 @@ fn draw_food_calories(ui: &mut Ui, st: &mut AppState, r: Rect, accent: Color) {
     );
 
     let add_btn_r = Rect::new(input_r.right() + 6.0, input_y, 68.0, 28.0);
-    let add_clicked = ui.pill(wid("fitness.food_add"), add_btn_r, "+ Log", None, PillStyle::Primary(palette::GREEN)).clicked;
+    let add_clicked = ui.pill(wid("fitness.food_add"), add_btn_r, "Tambah", None, PillStyle::Primary(accent)).clicked;
 
     if resp.submitted || add_clicked {
         let text = st.ui.fitness_food_input.trim();
@@ -328,68 +329,32 @@ fn draw_food_calories(ui: &mut Ui, st: &mut AppState, r: Rect, accent: Color) {
         }
     }
 
-    // 3. Quick preset chips
-    let preset_y = input_y + 34.0;
-    let presets = [
-        "Nasi Padang",
-        "Ayam Geprek",
-        "Telur Rebus 2x",
-        "Kopi Susu",
-        "Dada Ayam 150g",
-        "Pisang",
-    ];
-    let mut px = r.x;
-    for (i, p) in presets.iter().enumerate() {
-        let pw = ui.pill_width(p, false, true);
-        if px + pw > r.right() {
-            break;
-        }
-        let b = Rect::new(px, preset_y, pw, 22.0);
-        if ui.pill(wid_n("food.preset", i as u64), b, p, None, PillStyle::Utility).clicked {
-            let (cal, prot, carb, fat) = estimate_food(p);
-            let time_str = format!("{:02}:{:02}", (st.unix / 3600) % 24, (st.unix / 60) % 60);
-            let id = st.unix as u64 ^ (food_count as u64 + i as u64);
-            st.store.fitness.food_logs.entry(today.clone()).or_default().push(FoodEntry {
-                id,
-                time: time_str,
-                name: p.to_string(),
-                calories: cal,
-                protein_g: prot,
-                carbs_g: carb,
-                fat_g: fat,
-            });
-            st.save();
-        }
-        px += pw + 6.0;
-    }
+    // 3. Logged food list
+    let list_y = input_y + 34.0;
+    let list_h = (r.bottom() - list_y).max(20.0);
+    let list_r = Rect::new(r.x, list_y, r.w, list_h);
 
-    // 4. Logged items list (showing last 2 items with delete)
-    let list_y = preset_y + 28.0;
-    let items_preview = st.store.fitness.food_logs.get(&today).map(|list| {
-        list.iter().rev().take(2).cloned().collect::<Vec<_>>()
-    }).unwrap_or_default();
-
-    if items_preview.is_empty() {
-        ui.c.text("Belum ada makanan yang dicatat hari ini.", Rect::new(r.x, list_y + 8.0, r.w, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+    if let Some(entries) = st.store.fitness.food_logs.get(&today).cloned() {
+        if entries.is_empty() {
+            ui.c.text("Belum ada log makanan hari ini", list_r, &TextStyle::footnote().color(palette::TEXT_FAINT));
+        } else {
+            let mut ly = list_y;
+            for item in entries.iter().rev().take(3) {
+                let row_r = Rect::new(r.x, ly, r.w, 22.0);
+                ui.c.fill_rrect(row_r, 4.0, palette::SURFACE);
+                let time_w = 46.0;
+                ui.c.text(&item.time, Rect::new(row_r.x + 6.0, row_r.y + 3.0, time_w, 16.0), &TextStyle::caption().color(palette::TEXT_FAINT));
+                let name_w = row_r.w - 180.0;
+                ui.c.text(&item.name, Rect::new(row_r.x + time_w + 6.0, row_r.y + 3.0, name_w, 16.0), &TextStyle::footnote().color(palette::TEXT));
+                let info = format!("{} kkal (P:{:.0}g K:{:.0}g L:{:.0}g)", item.calories, item.protein_g, item.carbs_g, item.fat_g);
+                ui.c.text(&info, Rect::new(row_r.right() - 170.0, row_r.y + 3.0, 164.0, 16.0), &TextStyle::caption().color(palette::TEXT_DIM));
+                ly += 24.0;
+                if ly + 22.0 > r.bottom() {
+                    break;
+                }
+            }
+        }
     } else {
-        let mut item_y = list_y;
-        let mut to_remove = None;
-        for item in items_preview {
-            let row_r = Rect::new(r.x, item_y, r.w, 20.0);
-            let desc = format!("• {} - {} kkal (P:{:.0}g K:{:.0}g L:{:.0}g)", item.name, item.calories, item.protein_g, item.carbs_g, item.fat_g);
-            ui.c.text(&desc, Rect::new(row_r.x, row_r.y, row_r.w - 50.0, 18.0), &TextStyle::footnote());
-
-            let del_r = Rect::new(row_r.right() - 44.0, row_r.y - 1.0, 44.0, 18.0);
-            if ui.pill(wid_n("food.del", item.id), del_r, "Hapus", None, PillStyle::Utility).clicked {
-                to_remove = Some(item.id);
-            }
-            item_y += 20.0;
-        }
-        if let Some(del_id) = to_remove {
-            if let Some(list) = st.store.fitness.food_logs.get_mut(&today) {
-                list.retain(|f| f.id != del_id);
-                st.save();
-            }
-        }
+        ui.c.text("Belum ada log makanan hari ini", list_r, &TextStyle::footnote().color(palette::TEXT_FAINT));
     }
 }
