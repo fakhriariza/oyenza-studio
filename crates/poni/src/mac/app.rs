@@ -1367,7 +1367,7 @@ impl App {
                 pinfo!("start at login: {now:?}");
                 if now == Login::NeedsApproval {
                     services::login::open_settings();
-                    self.st.notify(Icon::Sliders, palette::ORANGE, "Allow Oyenza Studio to start at login", "Turn it on in Login Items", 8.0, None);
+                    self.st.notify(Icon::Sliders, palette::ORANGE, "Allow Ariza Studio to start at login", "Turn it on in Login Items", 8.0, None);
                 }
             }
         }
@@ -1564,7 +1564,7 @@ impl App {
             if let Some(dmg) = self.updater.as_ref().and_then(|u| u.downloaded(&self.st)) {
                 services::open(&dmg.to_string_lossy());
                 self.collapse();
-                self.st.notify(Icon::Download, self.st.accent, "Install it by hand this time", "Drag Oyenza Studio to Applications in the window that opened", 10.0, None);
+                self.st.notify(Icon::Download, self.st.accent, "Install it by hand this time", "Drag Ariza Studio to Applications in the window that opened", 10.0, None);
                 return;
             }
         }
@@ -4195,7 +4195,7 @@ impl App {
                 self.st.pomodoro.start(self.st.now);
             }
             "notice" => {
-                self.st.notify(Icon::CheckCircle, self.st.accent, "Oyenza Studio is on", "Point at the island to open it", 30.0, None);
+                self.st.notify(Icon::CheckCircle, self.st.accent, "Ariza Studio is on", "Point at the island to open it", 30.0, None);
             }
             "volume-hud" => {
                 self.st.notice = None;
