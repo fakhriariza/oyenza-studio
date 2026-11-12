@@ -166,6 +166,9 @@ pub enum NotesCmd {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     Media(MediaCmd),
+    /// The AI page's answer to the question an agent is waiting on: its index
+    /// in `state::Ask::options` (`services::harness::answer` sends it back).
+    AnswerAsk(usize),
     /// Open a file/folder with its default handler.
     OpenPath(String),
     /// Show a file in Explorer.

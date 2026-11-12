@@ -10,6 +10,7 @@
 //! files, saving, …).
 
 pub mod addons;
+pub mod ask;
 pub mod caffeine;
 pub mod card;
 pub mod downloads;
@@ -270,6 +271,9 @@ pub fn content_height(p: PageKind, st: &AppState) -> f32 {
     match p {
         PageKind::Media => media::height(st),
         PageKind::Focus => focus::height(st),
+        // An agent's question takes the AI tab while it waits: the answer is
+        // given there, at page size (`pages::ask`).
+        PageKind::Ai if crate::state::ask().is_some() => ask::height(st),
         PageKind::Ai => usage::height(st),
         PageKind::Health => health::height(st),
         PageKind::Ielts => ielts::height(st),
@@ -413,6 +417,7 @@ pub(crate) fn draw_page(ui: &mut Ui, st: &mut AppState, area: Rect, page: PageKi
     match page {
         PageKind::Media => media::draw(ui, st, area),
         PageKind::Focus => focus::draw(ui, st, area),
+        PageKind::Ai if crate::state::ask().is_some() => ask::draw(ui, st, area),
         PageKind::Ai => usage::draw(ui, st, area),
         PageKind::Health => health::draw(ui, st, area),
         PageKind::Ielts => ielts::draw(ui, st, area),

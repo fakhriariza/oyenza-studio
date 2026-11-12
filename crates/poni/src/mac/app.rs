@@ -2598,11 +2598,12 @@ impl App {
                         // The notice's inline pill acts in place without expanding.
                         self.input.pressed_id = None;
                         self.run_inline_action(a);
-                    } else if let Some(i) = self.notice_option(self.input.pressed_id) {
-                        // An answer: the agent's request gets it and the
-                        // question leaves, without opening the island.
+                    } else if self.st.notice.as_ref().is_some_and(|n| n.inline == Some(InlineAction::Answer)) {
+                        // A question: the island opens on the AI page, where the
+                        // question is big and the answers are laid out to click.
                         self.input.pressed_id = None;
-                        self.answer_question(i);
+                        self.st.page = PageKind::Ai;
+                        self.expand();
                     } else if self.input.pressed_id == Some(wid(activities::PRAYER_OK_ID)) {
                         // The prayer countdown's OK, the same way.
                         self.input.pressed_id = None;
@@ -2987,12 +2988,6 @@ impl App {
 
     /// Run a notice's inline action in place (the island stays collapsed),
     /// then show a check mark in the pill briefly before the notice leaves.
-    /// Which of a question's answer pills `id` is, if it is one.
-    fn notice_option(&self, id: Option<crate::ui::WidgetId>) -> Option<usize> {
-        let id = id?;
-        (0..8).find(|i| id == crate::ui::wid_n("notice.opt", *i as u64))
-    }
-
     /// Someone picked answer `i`: send it to the agent that asked, and take
     /// the question away.
     fn answer_question(&mut self, i: usize) {
@@ -3010,6 +3005,12 @@ impl App {
 
     fn run_inline_action(&mut self, a: InlineAction) {
         self.refresh_time();
+        if a == InlineAction::Answer {
+            // The question's door: the AI page, at its full size.
+            self.st.page = PageKind::Ai;
+            self.expand();
+            return;
+        }
         if a == InlineAction::StopAdzan {
             self.adzan.stop();
             self.st.prayer.adzan = false;
@@ -3066,6 +3067,8 @@ impl App {
         let cmds = std::mem::take(&mut self.st.cmds);
         for c in cmds {
             match c {
+                // The AI page's answer: the agent that is waiting gets it.
+                Command::AnswerAsk(i) => self.answer_question(i),
                 Command::Media(m) => {
                     if let Some(s) = self.media.as_ref() {
                         s.command(m.clone());

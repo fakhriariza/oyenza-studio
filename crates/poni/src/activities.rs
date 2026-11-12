@@ -313,8 +313,6 @@ pub fn geom(m: &Mode, st: &AppState) -> Geom {
         Mode::Hud(HudTag::Volume) => Geom::new(316.0, 40.0, 19.0),
         Mode::Hud(HudTag::Charging) | Mode::Hud(HudTag::LowBattery) => Geom::new(300.0, 40.0, 19.0),
         Mode::Hud(HudTag::Bluetooth) => Geom::new(336.0, 46.0, 22.0),
-        // A question has answers beside it, so it asks for more room.
-        Mode::Notice if crate::state::ask().is_some() => Geom::new(560.0, 52.0, 24.0),
         Mode::Notice => Geom::new(372.0, 52.0, 24.0),
         Mode::Expanded(p) => {
             let h = pages::HEADER_H + pages::content_height(*p, st) + pages::PAD;
@@ -954,10 +952,6 @@ fn inline_done(st: &AppState, a: InlineAction) -> bool {
 
 fn draw_notice(ui: &mut Ui, st: &mut AppState, body: Rect) {
     let Some(n) = st.notice.clone() else { return };
-    if n.inline == Some(InlineAction::Answer) {
-        draw_question(ui, st, body, &n);
-        return;
-    }
     let cy = body.center().y;
     // Disc and inline pill keep the same 16 DIP inset from the ends.
     let c = Point::new(body.x + 32.0, cy);
@@ -988,36 +982,6 @@ fn draw_notice(ui: &mut Ui, st: &mut AppState, body: Rect) {
             let style = if icon.is_some() { PillStyle::Primary(color) } else { PillStyle::Utility };
             ui.pill(wid("notice.act"), r, label, icon, style);
         }
-    }
-}
-
-/// A question from an AI agent, open in the island: the same notice, but the
-/// answers are pills at the right end, one per option, the last at the end.
-fn draw_question(ui: &mut Ui, st: &AppState, body: Rect, n: &Notice) {
-    let cy = body.center().y;
-    let c = Point::new(body.x + 32.0, cy);
-    ui.c.fill_circle(c, 16.0, n.color.with_alpha(0.22));
-    ui.c.icon(n.icon, Rect::from_center(c, 18.0, 18.0), n.color);
-
-    let opts = crate::state::ask().map(|q| q.options).unwrap_or_default();
-    let ws: Vec<f32> = opts.iter().map(|l| ui.pill_width(l, false, true).max(64.0)).collect();
-    let mut right = body.right() - 16.0;
-    let mut rects = vec![Rect::new(0.0, 0.0, 0.0, 0.0); opts.len()];
-    for (i, w) in ws.iter().enumerate().rev() {
-        rects[i] = Rect::new(right - w, cy - PILL_SMALL / 2.0, *w, PILL_SMALL);
-        right = rects[i].x - 8.0;
-    }
-
-    let tx = c.x + 16.0 + 10.0;
-    let text_right = rects.first().map_or(body.right() - 22.0, |r| r.x - 12.0);
-    let tw = (text_right - tx).max(0.0);
-    notice_title(ui, n, Rect::new(tx, cy - 18.0, tw, 20.0), TextStyle::headline());
-    ui.c.text(&n.subtitle, Rect::new(tx, cy + 1.0, tw, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
-
-    ui.button(wid("notice"), body);
-    for (i, (label, r)) in opts.iter().zip(rects).enumerate() {
-        let style = if i == 0 { PillStyle::Primary(n.color) } else { PillStyle::Utility };
-        ui.pill(crate::ui::wid_n("notice.opt", i as u64), r, label, None, style);
     }
 }
 

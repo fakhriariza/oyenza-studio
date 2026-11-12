@@ -3604,7 +3604,7 @@ impl App {
             PageKind::Notifications => !self.st.notifications_on(),
             PageKind::Ielts => !self.st.ielts_on(),
             PageKind::Notes => !self.st.notes_on(),
-            PageKind::Ai => !self.st.ai_usage_on(),
+            PageKind::Ai => !self.st.ai_usage_on() && crate::state::ask().is_none(),
             _ => false,
         };
         if gone {

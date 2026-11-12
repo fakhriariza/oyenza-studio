@@ -990,7 +990,8 @@ impl AppState {
             PageKind::Notifications => !st.notifications_on(),
             PageKind::Ielts => !st.ielts_on(),
             PageKind::Notes => !st.notes_on(),
-            PageKind::Ai => !st.ai_usage_on(),
+            // A question from an agent needs the AI tab even when its meters are off.
+            PageKind::Ai => !st.ai_usage_on() && crate::state::ask().is_none(),
             p => st.tab_hidden(p),
         };
         if off {

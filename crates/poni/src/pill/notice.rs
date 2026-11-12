@@ -33,10 +33,6 @@ const TEXT_END: f32 = 24.0;
 const ACT_INSET: f32 = H / 2.0 - PILL_SMALL / 2.0;
 const ACT_GAP: f32 = 14.0;
 const ACT_MIN_W: f32 = 84.0;
-/// An answer pill's smallest width and the gap between two of them (a
-/// question's, which sit side by side).
-const QUESTION_PILL_MIN: f32 = 64.0;
-const QUESTION_PILL_GAP: f32 = 8.0;
 /// Over a fill this light the glyph turns dark (white, yellow).
 const LIGHT_FILL: f32 = 0.75;
 
@@ -62,30 +58,7 @@ fn subtitle_style() -> TextStyle {
 /// beside them. Never the hidden sum (`reveal`), so the pill's size gives
 /// nothing away before Show.
 fn key(n: &Notice) -> u64 {
-    // A question's answers are part of its width: another question with the
-    // same words but different pills must measure again.
-    let opts = crate::state::ask().map_or(0, |q| wid(&q.options.join("\u{1}")).rotate_left(7));
-    wid(&n.title) ^ wid(&n.title_dim).rotate_left(42) ^ wid(&n.subtitle).rotate_left(21)
-        ^ n.inline.map_or(0, |a| a as u64 + 1) ^ opts
-}
-
-/// How much room a question's answers take at the right end, if this notice is one.
-fn question_tail(n: &Notice) -> Option<f32> {
-    if n.inline != Some(InlineAction::Answer) {
-        return None;
-    }
-    let q = crate::state::ask()?;
-    if q.options.is_empty() {
-        return None;
-    }
-    let mut w = 0.0;
-    for (i, l) in q.options.iter().enumerate() {
-        w += guess(l, 13.0).max(QUESTION_PILL_MIN);
-        if i + 1 < q.options.len() {
-            w += QUESTION_PILL_GAP;
-        }
-    }
-    Some(w)
+    wid(&n.title) ^ wid(&n.title_dim).rotate_left(42) ^ wid(&n.subtitle).rotate_left(21) ^ n.inline.map_or(0, |a| a as u64 + 1)
 }
 
 /// Whole even DIPs, so the centred body's edges stay on whole DIPs.
@@ -112,9 +85,7 @@ pub fn geom(st: &AppState) -> Option<Geom> {
 /// frame; the next frame has the measured one while the morph runs).
 fn guess_width(n: &Notice) -> f32 {
     let words = guess(&format!("{} {}", n.title, n.title_dim), 13.0 * 1.05).max(guess(&n.subtitle, 12.0));
-    let tail = if let Some(q) = question_tail(n) {
-        ACT_GAP + q + ACT_INSET
-    } else if n.inline.is_some() {
+    let tail = if n.inline.is_some() {
         ACT_GAP + ACT_MIN_W + ACT_INSET
     } else {
         TEXT_END
@@ -165,51 +136,8 @@ fn ink_on(fill: Color) -> Color {
     }
 }
 
-/// A question from an AI agent: the same capsule, but the pills at the right
-/// end are the answers, one per option, the last one at the end.
-fn draw_question(ui: &mut Ui, _st: &AppState, n: &Notice, body: Rect) {
-    let (title_st, sub_st) = (title_style(), subtitle_style());
-    let opts = crate::state::ask().map(|q| q.options).unwrap_or_default();
-    let ws: Vec<f32> = opts.iter().map(|l| ui.pill_width(l, false, true).max(QUESTION_PILL_MIN)).collect();
-    let pills_w = ws.iter().sum::<f32>() + QUESTION_PILL_GAP * ws.len().saturating_sub(1) as f32;
-    let words = ui.c.measure(&n.title, &title_st, 2000.0).0.max(ui.c.measure(&n.subtitle, &sub_st, 2000.0).0);
-    let fw = fit(TEXT_X + words.ceil() + 1.0 + ACT_GAP + pills_w + ACT_INSET);
-    // `geom` sizes the window before this draws: leave the measured width for it.
-    FIT.with(|f| f.set((key(n), fw)));
-
-    let (w, h) = (body.w.max(fw), body.h.clamp(H, H + 8.0));
-    let lay = Rect::new(body.center().x - w / 2.0, body.y, w, h);
-    let cy = lay.center().y;
-    let c = Point::new(lay.x + h / 2.0, cy);
-    ui.c.fill_circle(c, DISC / 2.0, n.color);
-    ui.c.icon(n.icon, Rect::from_center(c, GLYPH, GLYPH), ink_on(n.color));
-
-    let mut right = lay.right() - ACT_INSET;
-    let mut rects = vec![Rect::new(0.0, 0.0, 0.0, 0.0); opts.len()];
-    for (i, w) in ws.iter().enumerate().rev() {
-        rects[i] = Rect::new(right - w, cy - PILL_SMALL / 2.0, *w, PILL_SMALL);
-        right = rects[i].x - QUESTION_PILL_GAP;
-    }
-    let tx = lay.x + TEXT_X;
-    let text_right = if ws.is_empty() { lay.right() - TEXT_END } else { rects[0].x - ACT_GAP };
-    let tw = (text_right - tx).max(0.0);
-    crate::activities::notice_title(ui, n, Rect::new(tx, cy - 20.0, tw, 22.0), title_st);
-    ui.c.text(&n.subtitle, Rect::new(tx, cy + 2.0, tw, 20.0), &sub_st);
-
-    // The capsule first, so the answers win the hit test over it.
-    ui.button(wid("notice"), body);
-    for (i, (label, r)) in opts.iter().zip(rects).enumerate() {
-        let style = if i == 0 { PillStyle::Primary(n.color) } else { PillStyle::Utility };
-        ui.pill(crate::ui::wid_n("notice.opt", i as u64), r, label, None, style);
-    }
-}
-
 pub fn draw(ui: &mut Ui, st: &mut AppState, body: Rect) -> bool {
     let st = &*st;
-    if let Some(n) = st.notice.as_ref().filter(|n| n.inline == Some(InlineAction::Answer)) {
-        draw_question(ui, st, n, body);
-        return true;
-    }
     match st.notice.as_ref() {
         Some(n) => {
             LAST.with(|l| {
