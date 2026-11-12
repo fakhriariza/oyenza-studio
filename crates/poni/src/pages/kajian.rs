@@ -1,10 +1,12 @@
 //! Belajar Fiqih & Kajian Islam Praktis Harian untuk Ariza Studio.
 //! Mengganti materi otomatis setiap beberapa jam (Fiqih Sholat, Thaharah, Puasa, Muamalah, Adab).
+//! Mendukung auto-sync dari GitHub Raw JSON dan offline caching ke disk.
 
 use crate::gfx::{TextStyle, Weight};
 use crate::state::AppState;
 use crate::ui::{wid, wid_n, PillStyle, Ui};
 use poni_core::geom::{palette, Color, Rect};
+use std::sync::{OnceLock, RwLock};
 
 pub const HEIGHT: f32 = 224.0;
 
@@ -12,100 +14,79 @@ pub fn height(_st: &AppState) -> f32 {
     HEIGHT
 }
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct FiqhLesson {
-    pub category: &'static str,
-    pub title: &'static str,
-    pub summary: &'static str,
-    pub detail: &'static str,
-    pub dalil: &'static str,
+    pub category: String,
+    pub title: String,
+    pub summary: String,
+    pub detail: String,
+    pub dalil: String,
 }
 
-pub const LESSONS: &[FiqhLesson] = &[
-    FiqhLesson {
-        category: "Fiqih Sholat",
-        title: "Aturan Makmum Masbuq (Ketinggalan Rakaat)",
-        summary: "Jika mendapati imam sedang ruku' dan sempat thuma'ninah bersama imam sebelum imam i'tidal, rakaat tersebut sah terhitung.",
-        detail: "Takbiratul ihram sambil berdiri tegak dahulu, baru takbir intiqal ruku'. Lanjutkan kekurangan rakaat setelah salam imam.",
-        dalil: "HR. Abu Dawud No. 893 & HR. Bukhari",
-    },
-    FiqhLesson {
-        category: "Fiqih Sholat",
-        title: "Sujud Sahwi: Kapan Sebelum vs Sesudah Salam?",
-        summary: "Sebelum salam jika kurang rukun/sunnah ab'adh (lupa tasyahud awal) atau ragu jumlah rakaat dan ambil jumlah terkecil.",
-        detail: "Sesudah salam jika kelebihan rakaat atau ragu tapi yakin pada jumlah yang lebih kuat. Sujud 2 kali lalu salam lagi.",
-        dalil: "HR. Bukhari No. 1224 & Muslim No. 570",
-    },
-    FiqhLesson {
-        category: "Fiqih Sholat",
-        title: "Syarat & Batas Jamak Qashar saat Safar",
-        summary: "Jarak safar minimal ±80-88 km dan sudah keluar batas kota/pemukiman domisili.",
-        detail: "Dzuhur-Ashar & Maghrib-Isya boleh dijamak. Qashar hanya untuk sholat 4 rakaat menjadi 2 rakaat (Subuh & Maghrib tidak diqashar).",
-        dalil: "QS. An-Nisa: 101 & HR. Muslim No. 686",
-    },
-    FiqhLesson {
-        category: "Thaharah",
-        title: "Mengusap Kaus Kaki saat Wudhu (Al-Mash 'ala Al-Khuffain)",
-        summary: "Boleh mengusap bagian atas kaus kaki basah saat wudhu jika kaus kaki dipakai dalam keadaan suci (sudah wudhu sebelumnya).",
-        detail: "Berlaku 1x24 jam bagi yang mukim (di rumah/kantor) dan 3x24 jam bagi musafir, selama hanya hadats kecil.",
-        dalil: "HR. Muslim No. 276 dari Ali bin Abi Thalib",
-    },
-    FiqhLesson {
-        category: "Thaharah",
-        title: "Keraguan Batal Wudhu (Was-was Buang Angin)",
-        summary: "Jangan batalkan sholat atau wudhu hanya karena merasa ragu di perut kecuali mendengar suara atau mencium baunya.",
-        detail: "Darah luka kecil, mimisan, dan muntah sedikit tidak membatalkan wudhu menurut jumhur ulama.",
-        dalil: "HR. Bukhari No. 137 & Muslim No. 361",
-    },
-    FiqhLesson {
-        category: "Fiqih Sholat",
-        title: "Thuma'ninah adalah Rukun Wajib Sholat",
-        summary: "Thuma'ninah artinya diam sejenak setelah seluruh persendian tenang (minimal seukuran membaca 'Subhanallah').",
-        detail: "Wajib di 4 tempat: Ruku', I'tidal, Sujud, dan Duduk di antara dua sujud. Sholat tanpa thuma'ninah tidak sah.",
-        dalil: "Kisah orang yang buruk sholatnya (HR. Bukhari No. 757)",
-    },
-    FiqhLesson {
-        category: "Fiqih Puasa",
-        title: "Tindakan Medis Modern yang Tidak Membatalkan Puasa",
-        summary: "Inhaler asma, obat tetes mata/telinga, suntikan insulin/vitamin otot, dan donor darah tidak membatalkan puasa.",
-        detail: "Yang membatalkan adalah infus glukosa/nutrisi makanan yang menggantikan fungsi makan/minum ke pembuluh darah.",
-        dalil: "Fatwa Majma' Al-Fiqh Al-Islami OKI No. 93",
-    },
-    FiqhLesson {
-        category: "Dzikir & Sunnah",
-        title: "Urutan Dzikir Ba'da Sholat Fardhu Sesuai Sunnah",
-        summary: "Istighfar 3x ➔ Allahumma antas salam ➔ Ayat Kursi ➔ Tasbih, Tahmid, Takbir (33x) ➔ Tahlil penutup (1x).",
-        detail: "Keutamaan Ayat Kursi ba'da sholat: Tiada yang menghalanginya masuk surga melainkan kematian.",
-        dalil: "HR. An-Nasa'i & dishahihkan Ibnu Hibban",
-    },
-    FiqhLesson {
-        category: "Muamalah",
-        title: "Kaedah Emas Muamalah: Asal Jual Beli adalah Halal",
-        summary: "Hukum asal muamalah halal kecuali ada: Riba, Gharar (ketidakjelasan fatal), Penipuan/Tadlis, dan Objek Haram.",
-        detail: "Bunga pinjaman uang (apapun namanya: biaya admin harian, denda telat) adalah riba yang disepakati keharamannya.",
-        dalil: "QS. Al-Baqarah: 275 & Kaedah Fiqhiyyah",
-    },
-    FiqhLesson {
-        category: "Fiqih Sholat",
-        title: "Sunnah Memasang Sutrah (Pembatas) Sholat",
-        summary: "Dianjurkan meletakkan pembatas (dinding, tiang, tas, atau sajadah) di depan tempat sujud.",
-        detail: "Fungsinya mencegah orang lewat persis di depan sujud dan menjaga pandangan mata tetap fokus.",
-        dalil: "HR. Abu Dawud No. 698",
-    },
-    FiqhLesson {
-        category: "Thaharah",
-        title: "Tata Cara Tayamum Praktis yang Sah",
-        summary: "Niat ➔ Tepuk debu bersih 1x ➔ Tiup debu berlebih ➔ Usap wajah sekali ➔ Usap kedua telapak tangan.",
-        detail: "Cukup sampai pergelangan tangan (bukan sampai siku menurut hadits Ammar bin Yasir yang paling shahih).",
-        dalil: "HR. Bukhari No. 338 & Muslim No. 368",
-    },
-    FiqhLesson {
-        category: "Dzikir & Doa",
-        title: "Waktu-Waktu Paling Mustajab untuk Berdoa",
-        summary: "1) Sepertiga malam terakhir, 2) Antara adzan & iqamah, 3) Saat sujud, 4) Saat turun hujan, 5) 1 jam terakhir ba'da Ashar di hari Jum'at.",
-        detail: "Awali dengan memuji Allah (Alhamdulillah) & shalawat Nabi, akui dosa, lalu panjatkan hajat dengan penuh keyakinan.",
-        dalil: "HR. Tirmidzi No. 212 & HR. Abu Dawud",
-    },
-];
+static LESSONS_CACHE: OnceLock<RwLock<Vec<FiqhLesson>>> = OnceLock::new();
+static SYNC_TRIGGERED: OnceLock<()> = OnceLock::new();
+const EMBEDDED_JSON: &str = include_str!("../../../../data/fiqih_lessons.json");
+
+/// URL remote feed di repo GitHub
+const REMOTE_FEED_URL: &str = "https://raw.githubusercontent.com/fakhriariza/oyenza-studio/main/data/fiqih_lessons.json";
+
+/// Mengambil daftar materi fiqih (dari memory cache / file disk lokal / embedded fallback).
+pub fn lessons() -> Vec<FiqhLesson> {
+    let cache = LESSONS_CACHE.get_or_init(|| {
+        // 1. Coba baca dari file lokal disk di data_dir()
+        let local_path = crate::paths::data_dir().join("fiqih_lessons.json");
+        if let Ok(content) = std::fs::read_to_string(&local_path) {
+            if let Ok(parsed) = serde_json::from_str::<Vec<FiqhLesson>>(&content) {
+                if !parsed.is_empty() {
+                    return RwLock::new(parsed);
+                }
+            }
+        }
+        // 2. Fallback ke embedded JSON
+        let fallback: Vec<FiqhLesson> = serde_json::from_str(EMBEDDED_JSON).unwrap_or_default();
+        RwLock::new(fallback)
+    });
+
+    // Jalankan sync online di background thread secara non-blocking
+    SYNC_TRIGGERED.get_or_init(|| {
+        std::thread::Builder::new()
+            .name("poni-fiqih-sync".into())
+            .spawn(|| {
+                sync_remote_lessons();
+            })
+            .ok();
+    });
+
+    if let Ok(guard) = cache.read() {
+        guard.clone()
+    } else {
+        serde_json::from_str(EMBEDDED_JSON).unwrap_or_default()
+    }
+}
+
+/// Sinkronisasi feed materi fiqih terbaru dari GitHub Raw saat online.
+fn sync_remote_lessons() {
+    let Ok(client) = crate::services::http::Client::new("ArizaStudio") else { return; };
+    let Ok(resp) = client.get(REMOTE_FEED_URL, std::time::Duration::from_secs(8)) else { return; };
+    if resp.status == 200 {
+        if let Ok(items) = serde_json::from_str::<Vec<FiqhLesson>>(&resp.body) {
+            if !items.is_empty() {
+                // Simpan ke local cache di disk
+                let data_dir = crate::paths::data_dir();
+                let _ = std::fs::create_dir_all(&data_dir);
+                let local_path = data_dir.join("fiqih_lessons.json");
+                let _ = std::fs::write(&local_path, &resp.body);
+
+                // Perbarui cache di memori
+                if let Some(lock) = LESSONS_CACHE.get() {
+                    if let Ok(mut guard) = lock.write() {
+                        *guard = items;
+                    }
+                }
+            }
+        }
+    }
+}
 
 const PODCASTS: &[(&str, &str)] = &[
     ("🎙️ Fahruddin Faiz", "https://open.spotify.com/search/Fahruddin%20Faiz"),
@@ -118,12 +99,16 @@ const PODCASTS: &[(&str, &str)] = &[
 
 pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     let accent = st.accent;
-    let n = LESSONS.len();
+    let all_lessons = lessons();
+    let n = all_lessons.len();
+    if n == 0 {
+        return;
+    }
 
     // Auto-rotasi setiap 2 jam (7200 detik), atau digeser manual oleh tombol navigasi
     let auto_slot = (st.unix / 7200) as usize;
     let current_idx = (auto_slot + st.ui.kajian_quote_idx) % n;
-    let lesson = &LESSONS[current_idx];
+    let lesson = &all_lessons[current_idx];
 
     // 1. Header Bar: Title + Navigation buttons
     let header_y = area.y + 2.0;
@@ -154,13 +139,13 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     // Category badge & Title
     let cat_badge = format!("[ {} ]", lesson.category);
     ui.c.text(&cat_badge, Rect::new(card.x + 12.0, card.y + 8.0, 140.0, 16.0), &TextStyle::footnote().weight(Weight::Bold).color(palette::GREEN));
-    ui.c.text(lesson.title, Rect::new(card.x + 12.0, card.y + 26.0, card.w - 24.0, 20.0), &TextStyle::body().weight(Weight::Bold));
+    ui.c.text(&lesson.title, Rect::new(card.x + 12.0, card.y + 26.0, card.w - 24.0, 20.0), &TextStyle::body().weight(Weight::Bold));
 
     // Summary (Intisari)
-    ui.c.text(lesson.summary, Rect::new(card.x + 12.0, card.y + 48.0, card.w - 24.0, 18.0), &TextStyle::footnote());
+    ui.c.text(&lesson.summary, Rect::new(card.x + 12.0, card.y + 48.0, card.w - 24.0, 18.0), &TextStyle::footnote());
 
     // Detail & Dalil
-    ui.c.text(lesson.detail, Rect::new(card.x + 12.0, card.y + 68.0, card.w - 24.0, 18.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+    ui.c.text(&lesson.detail, Rect::new(card.x + 12.0, card.y + 68.0, card.w - 24.0, 18.0), &TextStyle::footnote().color(palette::TEXT_DIM));
     let dalil_str = format!("📌 Dalil: {}", lesson.dalil);
     ui.c.text(&dalil_str, Rect::new(card.x + 12.0, card.y + 90.0, card.w - 24.0, 16.0), &TextStyle::caption().color(palette::ORANGE));
 
