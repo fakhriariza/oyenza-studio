@@ -191,6 +191,7 @@ pub fn activate_app(name: &str) {
     let app_name = match lower.as_str() {
         "deepseek" | "deepseek harness" | "dsh" => "DeepSeek Harness",
         "antigravity" | "agy" => "Antigravity",
+        "claude" | "claude code" | "terminal" => "Terminal",
         _ => name,
     };
     let _ = std::process::Command::new("open")

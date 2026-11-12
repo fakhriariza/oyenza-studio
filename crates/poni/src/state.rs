@@ -1072,9 +1072,9 @@ impl AppState {
         self.addon(poni_core::addons::MEETING_NOTES.id) == AddonStatus::Ready
     }
 
-    /// Prayer times is on and its places are read: the tab and reminders run.
+    /// Prayer times is a core feature in Ariza Studio: on while places are loaded.
     pub fn prayer_on(&self) -> bool {
-        self.addon(poni_core::addons::PRAYER_TIMES.id) == AddonStatus::Ready && self.prayer.places.is_some()
+        self.prayer.places.is_some()
     }
 
     /// The place the times are for, as the engine needs it, with the

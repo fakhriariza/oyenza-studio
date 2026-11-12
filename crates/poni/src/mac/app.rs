@@ -1842,21 +1842,38 @@ impl App {
                 let is_acc = status == "acc" || status == "approval";
                 let is_done = status == "done" || status == "completed" || status == "ok";
                 let is_news = status == "news" || status == "running";
-                let (icon, color, secs) = if is_acc {
-                    (Icon::Bolt, palette::ORANGE, f64::INFINITY)
+                let is_claude = title.to_lowercase().contains("claude");
+                let icon = if is_acc {
+                    Icon::Bolt
                 } else if is_done {
-                    (Icon::CheckCircle, palette::GREEN, 10.0)
+                    Icon::CheckCircle
                 } else if is_news {
-                    (Icon::Script, palette::BLUE, 14.0)
+                    Icon::Script
+                } else if is_claude {
+                    Icon::Claude
                 } else {
-                    (Icon::Ai, self.st.accent, 8.0)
+                    Icon::Ai
                 };
+                let color = if is_acc {
+                    palette::ORANGE
+                } else if is_done {
+                    palette::GREEN
+                } else if is_news {
+                    palette::BLUE
+                } else if is_claude {
+                    Color::rgba(0.85, 0.45, 0.25, 1.0)
+                } else {
+                    self.st.accent
+                };
+                let secs = if is_acc { f64::INFINITY } else if is_done { 10.0 } else if is_news { 14.0 } else { 8.0 };
                 let target_app = if is_news {
                     "Google Chrome"
                 } else if title.to_lowercase().contains("deepseek") {
                     "DeepSeek Harness"
                 } else if title.to_lowercase().contains("antigravity") {
                     "Antigravity"
+                } else if is_claude {
+                    "Terminal"
                 } else {
                     "DeepSeek Harness"
                 };
@@ -1937,6 +1954,7 @@ impl App {
             Ok(list) => {
                 pinfo!("prayer: {} places", list.places.len());
                 self.st.prayer.places = Some(std::sync::Arc::new(list));
+                self.st.addons.insert(PRAYER_TIMES.id, poni_core::addons::Status::Ready);
             }
             Err(e) => {
                 pwarn!("prayer: can't read the places ({e})");
