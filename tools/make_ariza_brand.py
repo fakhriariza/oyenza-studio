@@ -11,7 +11,6 @@ Writes brand/ariza/:
   ariza-mark.svg, ariza-mark-*.png     the tile alone
   ariza-studio-icon.ico                app, window and tray icon, every size drawn on its own
   ariza-studio-lockup{,-dark}.svg/png  tile + wordmark, for light and for dark backgrounds
-  ariza-studio-stacked.svg/png         tile above wordmark, for square holes
   preview.png                          the sheet: both lockups, the mark, the palette
 
 The tile is drawn by tools/make_brand.py; this file only changes its <title> and its ids, then scales it, so
@@ -20,6 +19,7 @@ the two never drift apart.
 The wordmark is Inter (SIL OFL), the first fallback in Oyenza Studio's own font stack. SF Pro Text, which the
 site uses, may not be redistributed as outlines.
 """
+import math
 import re
 import sys
 from pathlib import Path
@@ -41,7 +41,6 @@ INSET = mb.INSET * ICON  # the tile's visible edge, inside its box
 CAP = 0.42  # cap height, as a fraction of the icon
 GAP = 0.60  # space between the tile's ink and the wordmark's ink, in cap heights
 TRACK = -0.01  # letter-spacing, in em -- the site's .side-brand
-STACK_GAP = 0.26  # space between tile and wordmark in the stacked lockup, in icon heights
 INK, INK_DARK = "#171717", "#FFFFFF"
 NAME = "Ariza Studio"
 
@@ -199,6 +198,39 @@ class Wordmark:
         return gaps
 
 
+def fill_nonzero(mask: Image.Image, polys: list[list[tuple[float, float]]], value: int = 255) -> None:
+    """Scanline fill with the nonzero winding rule: how TrueType fills its outlines.
+
+    The letters are outlined the way a font is, so a stroke that crosses another one (the bar of "A",
+    the stem of "t") has two contours over the same pixels. XOR would punch a hole there; counting the
+    windings fills the union, and keeps the counters of "a" and "o" empty.
+    """
+    W, H = mask.size
+    rows: dict[int, list[tuple[float, int]]] = {}
+    for poly in polys:
+        for (x0, y0), (x1, y1) in zip(poly, poly[1:] + poly[:1]):
+            if y0 == y1:
+                continue
+            direction = 1 if y1 > y0 else -1
+            lo, hi = min(y0, y1), max(y0, y1)
+            for y in range(max(0, math.floor(lo)), min(H, math.ceil(hi))):
+                yc = y + 0.5
+                if lo <= yc < hi:
+                    rows.setdefault(y, []).append((x0 + (yc - y0) * (x1 - x0) / (y1 - y0), direction))
+    d = ImageDraw.Draw(mask)
+    for y, cuts in rows.items():
+        cuts.sort()
+        winding, start = 0, None
+        for x, direction in cuts:
+            before = winding
+            winding += direction
+            if before == 0 and winding != 0:
+                start = x
+            elif before != 0 and winding == 0 and start is not None:
+                d.rectangle([math.floor(start), y, math.ceil(x) - 1, y], fill=value)
+                start = None
+
+
 # --- the tile ------------------------------------------------------------------------------------
 
 def icon_inner() -> str:
@@ -210,8 +242,8 @@ def icon_inner() -> str:
 
 
 def icon_svg() -> str:
-    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {ICON:g} {ICON:g}">'
-            f'<title>Ariza Studio</title>{icon_inner()}</svg>\n')
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {ICON:g} {ICON:g}" '
+            f'width="{ICON:g}" height="{ICON:g}"><title>Ariza Studio</title>{icon_inner()}</svg>\n')
 
 
 # --- layout --------------------------------------------------------------------------------------
@@ -226,46 +258,32 @@ class Plan:
     Units are lockup units: the tile's box is ICON square at (0, 0).
     """
 
-    def __init__(self, mark: Wordmark, wide: bool = True):
-        self.mark, self.wide = mark, wide
+    def __init__(self, mark: Wordmark):
         self.size = mark.size_for_cap(CAP * ICON)
         k = self.size / mark.upm
-        if wide:
-            gap = GAP * CAP * ICON - INSET - mark.ink[0] * k  # ink to ink, less both side bearings
-            self.tile = (0.0, 0.0)
-            self.x0, self.baseline = ICON + gap, ICON / 2 + (mark.ink[1] + mark.ink[3]) / 2 * k
-            text = (self.x0 + mark.ink[0] * k, self.baseline - mark.ink[3] * k,
-                    self.x0 + mark.ink[2] * k, self.baseline - mark.ink[1] * k)
-            self.box = _union((INSET, INSET, ICON - INSET, ICON - INSET), text)
-            self.text_w = text[2] - text[0]
-        else:
-            text_w = (mark.ink[2] - mark.ink[0]) * k
-            w = max(ICON, text_w)
-            self.tile = ((w - ICON) / 2, 0.0)
-            self.x0 = (w - text_w) / 2 - mark.ink[0] * k
-            self.baseline = ICON + STACK_GAP * ICON - mark.ink[1] * k
-            text = (self.x0 + mark.ink[0] * k, self.baseline - mark.ink[3] * k,
-                    self.x0 + mark.ink[2] * k, self.baseline - mark.ink[1] * k)
-            self.box = _union((self.tile[0] + INSET, INSET, self.tile[0] + ICON - INSET, ICON - INSET), text)
-            self.text_w = text_w
+        gap = GAP * CAP * ICON - INSET - mark.ink[0] * k  # ink to ink, less both side bearings
+        self.x0, self.baseline = ICON + gap, ICON / 2 + (mark.ink[1] + mark.ink[3]) / 2 * k
+        text = (self.x0 + mark.ink[0] * k, self.baseline - mark.ink[3] * k,
+                self.x0 + mark.ink[2] * k, self.baseline - mark.ink[1] * k)
+        self.box = _union((INSET, INSET, ICON - INSET, ICON - INSET), text)
+        self.text_w = text[2] - text[0]
         self.width = self.box[2] - self.box[0]
         self.height = self.box[3] - self.box[1]
 
 
-def lockup_svg(mark: Wordmark, ink: str, wide: bool = True) -> str:
-    p = Plan(mark, wide)
+def lockup_svg(mark: Wordmark, ink: str) -> str:
+    p = Plan(mark)
     x0, y0, x1, y1 = p.box
-    tile = (f'<g transform="translate({p.tile[0]:.1f} {p.tile[1]:.1f}) scale({ICON / 1024:g})">'
-            f'{icon_inner()}</g>')
+    tile = icon_inner()  # authored in the tile's own 1024 units, which is what ICON is
     text = f'<path d="{mark.path(p.size, p.x0, p.baseline)}" fill="{ink}"/>'
     return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{x0:.1f} {y0:.1f} {p.width:.1f} {p.height:.1f}" '
-            f'width="{p.width:.0f}" height="{p.height:.0f}"><title>Ariza Studio</title>\n'
+            f'width="{p.width:.1f}" height="{p.height:.1f}"><title>Ariza Studio</title>\n'
             f'{tile}\n{text}\n</svg>\n')
 
 
-def lockup_png(mark: Wordmark, ink: str, width: int = 2048, wide: bool = True, ss: int = 3) -> Image.Image:
+def lockup_png(mark: Wordmark, ink: str, width: int = 2048, ss: int = 3) -> Image.Image:
     """The lockup from the same geometry as the svg: drawn at ss x, then LANCZOS down."""
-    p = Plan(mark, wide)
+    p = Plan(mark)
     k = width / p.width * ss
     cw, ch = round(p.width * k), round(p.height * k)
     ox, oy = p.box[0], p.box[1]
@@ -273,19 +291,14 @@ def lockup_png(mark: Wordmark, ink: str, width: int = 2048, wide: bool = True, s
 
     tile_size = round(ICON * k)
     tile = mb.draw_logo(tile_size, ss=2)
-    canvas.alpha_composite(tile, (round(p.tile[0] * k - ox * k), round(p.tile[1] * k - oy * k)))
+    canvas.alpha_composite(tile, (-round(ox * k), -round(oy * k)))
 
     mask = Image.new("L", (cw, ch), 0)
-    acc = Image.new("1", (cw, ch), 0)
-    for poly in mark.placed(p.size * k, (p.x0 - ox) * k, (p.baseline - oy) * k):
-        layer = Image.new("1", (cw, ch), 0)
-        ImageDraw.Draw(layer).polygon(poly, fill=1)
-        acc = ImageChops.logical_xor(acc, layer)
-    mask.paste(255, (0, 0), acc.convert("L"))
+    fill_nonzero(mask, mark.placed(p.size * k, (p.x0 - ox) * k, (p.baseline - oy) * k))
     rgb = Image.new("RGBA", (cw, ch), ink)
     rgb.putalpha(mask)
     canvas.alpha_composite(rgb)
-    return canvas.resize((round(p.width), round(p.height)), Image.LANCZOS)
+    return canvas.resize((round(width), round(width * p.height / p.width)), Image.LANCZOS)
 
 
 # --- preview sheet -------------------------------------------------------------------------------
@@ -298,53 +311,57 @@ def tracked(draw, xy, text, font, fill, tracking=0.0):
         x += draw.textlength(ch, font=font) + tracking
 
 
-def preview(lab, small, mark: Wordmark, light: Image.Image, dark: Image.Image, icons: dict) -> Image.Image:
-    W, H, M = 2400, 1660, 140
+def preview(lab, small, light: Image.Image, dark: Image.Image, icons: dict) -> Image.Image:
+    """The sheet: each lockup under its own label, then the mark and the palette."""
+    W, H, M = 2400, 1520, 120
     sheet = Image.new("RGBA", (W, H), "#FFFFFF")
     d = ImageDraw.Draw(sheet)
 
-    tracked(d, (M, 96), "ARIZA STUDIO", lab, "#171717", 7)
-    tracked(d, (M, 146), "BRAND MARK  ·  THE OYENZA SYSTEM, RENAMED", small, "#86868B", 3)
-    d.line([(M, 208), (W - M, 208)], fill="#E8E8ED", width=2)
+    tracked(d, (M, 90), "ARIZA STUDIO", lab, "#171717", 7)
+    tracked(d, (M, 140), "BRAND MARK  ·  THE OYENZA SYSTEM, RENAMED", small, "#86868B", 3)
+    d.line([(M, 200), (W - M, 200)], fill="#E8E8ED", width=2)
 
-    # primary lockup and its note
-    lw = 1080
+    # the lockup on light
+    tracked(d, (M, 246), "PRIMARY  ·  LIGHT  ·  SMALLEST WIDTH 96 PX", small, "#86868B", 3)
+    lw = 1120
     lh = round(light.height * lw / light.width)
-    sheet.alpha_composite(light.resize((lw, lh), Image.LANCZOS), (M, 290))
-    note_x, note_y = M + lw + 110, 290 + lh // 2 - 42
-    tracked(d, (note_x, note_y), "PRIMARY", small, "#86868B", 3)
-    for i, line in enumerate(["Light backgrounds.", "Tile and wordmark, tight lockup.", "Smallest width 96 px."]):
-        d.text((note_x, note_y + 34 + i * 32), line, font=small, fill="#6E6E73")
+    sheet.alpha_composite(light.resize((lw, lh), Image.LANCZOS), ((W - lw) // 2, 290))
 
-    # dark band
-    band = 640
-    d.rounded_rectangle([M, band, W - M, band + 330], radius=36, fill="#0A0A0A")
-    dw = 860
+    # the lockup on dark
+    tracked(d, (M, 592), "ON DARK", small, "#86868B", 3)
+    d.rounded_rectangle([M, 632, W - M, 962], radius=36, fill="#0A0A0A")
+    dw = 880
     dh = round(dark.height * dw / dark.width)
-    sheet.alpha_composite(dark.resize((dw, dh), Image.LANCZOS), (M + 80, band + (330 - dh) // 2))
-    tracked(d, (W - M - 260, band + 44), "ON DARK", small, "#8E8E93", 3)
+    sheet.alpha_composite(dark.resize((dw, dh), Image.LANCZOS), ((W - dw) // 2, 632 + (330 - dh) // 2))
 
-    # the mark and the palette
-    y = band + 400
-    tracked(d, (M, y), "MARK", lab, "#171717", 6)
-    x = M + 6
+    # the mark, at the sizes an icon is asked for
+    tracked(d, (M, 1016), "MARK", lab, "#171717", 6)
+    x, foot = M + 6, 1262  # every icon sits on the same line, so the captions line up too
     for n in (200, 128, 64, 32):
-        sheet.alpha_composite(icons[n], (x, y + 56))
-        d.text((x, y + 56 + n + 16), f"{n} px", font=small, fill="#86868B")
+        sheet.alpha_composite(icons[n], (x, foot - n))
+        d.text((x, foot + 18), f"{n} px", font=small, fill="#86868B")
         x += n + 96
 
-    px, py = 1240, y + 56
-    tracked(d, (px, y), "PALETTE", lab, "#171717", 6)
-    for i, (hexv, name) in enumerate([("#F0892E", "Orange"), ("#0A0A0A", "Island"), ("#FFA24A", "Equalizer"),
-                                      ("#FFB37A", "Sunset, top"), ("#2B4F86", "Sunset, sea"), ("#171717", "Ink")]):
-        cx, cy = px + (i % 3) * 300, py + (i // 3) * 148
+    # the palette
+    px = 1300
+    tracked(d, (px, 1016), "PALETTE", lab, "#171717", 6)
+    swatches = [("#F0892E", "Orange, the tile"), ("#0A0A0A", "Island"), ("#FFA24A", "Equalizer"),
+                ("#FFB37A", "Sunset, top"), ("#2B4F86", "Sunset, sea"), ("#171717", "Ink")]
+    for i, (hexv, name) in enumerate(swatches):
+        cx, cy = px + (i % 3) * 300, 1062 + (i // 3) * 190
         d.rounded_rectangle([cx, cy, cx + 72, cy + 72], radius=18, fill=hexv)
-        d.text((cx + 90, cy + 8), name, font=small, fill="#171717")
-        d.text((cx + 90, cy + 42), hexv.upper(), font=small, fill="#86868B")
+        d.text((cx, cy + 84), name, font=small, fill="#171717")
+        d.text((cx, cy + 114), hexv.upper(), font=small, fill="#86868B")
+        for text in (name, hexv.upper()):  # the column is 300 wide; a longer name would run into the next one
+            if d.textlength(text, font=small) > 292:
+                print(f"  ! palette label too wide: {text!r}")
 
-    d.line([(M, H - 92), (W - M, H - 92)], fill="#E8E8ED", width=2)
-    d.text((M, H - 66), "tools/make_ariza_brand.py draws every file in this folder. Wordmark: Inter SemiBold, "
-                        "-1% tracking, outlined.", font=small, fill="#AEAEB2")
+    d.line([(M, H - 100), (W - M, H - 100)], fill="#E8E8ED", width=2)
+    note = ("tools/make_ariza_brand.py draws every file in this folder.  Wordmark: Inter SemiBold, -1% tracking, "
+            "outlined.  Tile: tools/make_brand.py.")
+    while d.textlength(note, font=small) > W - 2 * M and len(note) > 40:  # keep the footer inside the margins
+        note = note[:note.rindex(" ")] + "."
+    d.text((M, H - 74), note, font=small, fill="#AEAEB2")
     return sheet.convert("RGB")
 
 
@@ -369,18 +386,16 @@ def main() -> int:
 
     OUT.joinpath("ariza-studio-lockup.svg").write_text(lockup_svg(mark, INK))
     OUT.joinpath("ariza-studio-lockup-dark.svg").write_text(lockup_svg(mark, INK_DARK))
-    OUT.joinpath("ariza-studio-stacked.svg").write_text(lockup_svg(mark, INK, wide=False))
     light = lockup_png(mark, INK, 2048)
     dark = lockup_png(mark, INK_DARK, 2048)
     light.save(OUT / "ariza-studio-lockup.png", optimize=True)
     dark.save(OUT / "ariza-studio-lockup-dark.png", optimize=True)
     lockup_png(mark, INK, 1024).save(OUT / "ariza-studio-lockup-1024.png", optimize=True)
-    lockup_png(mark, INK, 1600, wide=False).save(OUT / "ariza-studio-stacked.png", optimize=True)
 
     lab = ImageFont.truetype(str(CACHE / "Inter-600.ttf"), 34)
     small = ImageFont.truetype(str(CACHE / "Inter-600.ttf"), 26)
     icons = {200: mb.draw_logo(200, ss=6), **{n: pngs[n] for n in (128, 64, 32)}}
-    sheet = preview(lab, small, mark, light, dark, icons)
+    sheet = preview(lab, small, light, dark, icons)
     sheet.save(OUT / "preview.png", optimize=True)
 
     for f in sorted(OUT.iterdir()):
