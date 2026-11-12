@@ -1,98 +1,156 @@
-#!/usr/bin/env bash
-# ariza-notify: Send notifications from DeepSeek harness or terminal to Ariza Studio Dynamic Island.
-#
-# Usage:
-#   ariza-notify --acc "Perlu approval untuk git push atau bash command"
-#   ariza-notify --done "Evaluasi 50 task benchmark selesai"
-#   ariza-notify --running (fetches and displays real-time news headline preview)
-#   ariza-notify --news
-#   ariza-notify --info "Status update"
+#!/usr/bin/env python3
+"""
+ariza-notify: Send notifications from AI agents (Antigravity, DeepSeek, Claude Code)
+to the Ariza Studio Dynamic Island. Supports direct interactive answering from the notch!
+"""
 
-PORT=48123
-STATUS="info"
-TITLE="DeepSeek Harness"
-MESSAGE=""
-IS_NEWS=false
+import sys
+import os
+import json
+import urllib.request
+import urllib.error
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --acc|--approval)
-      STATUS="acc"
-      shift
-      ;;
-    --done|--complete|--finished)
-      STATUS="done"
-      shift
-      ;;
-    --running|--news)
-      STATUS="news"
-      IS_NEWS=true
-      shift
-      ;;
-    --info)
-      STATUS="info"
-      shift
-      ;;
-    --title)
-      TITLE="$2"
-      shift 2
-      ;;
-    *)
-      if [ -z "$MESSAGE" ]; then
-        MESSAGE="$1"
-      else
-        MESSAGE="$MESSAGE $1"
-      fi
-      shift
-      ;;
-  esac
-done
+PORT = 48123
+TITLE = "DeepSeek Harness"
+STATUS = "info"
+MESSAGE = ""
+IS_NEWS = False
 
-if [ "$IS_NEWS" = true ]; then
-  # Fetch real-time news preview if not supplied
-  if [ -z "$MESSAGE" ]; then
-    NEWS_RES=$(/usr/bin/python3 -c "
-import json, os
+# 1. Check if invoked as an Antigravity hook with JSON on stdin
+stdin_json = None
+if not sys.stdin.isatty():
+    try:
+        content = sys.stdin.read()
+        if content.strip():
+            stdin_json = json.loads(content)
+    except Exception:
+        stdin_json = None
+
+if stdin_json and isinstance(stdin_json, dict):
+    tool_call = stdin_json.get("toolCall", {})
+    tool_name = tool_call.get("name", "")
+    args = tool_call.get("args", {})
+    
+    if tool_name == "ask_question":
+        questions = args.get("questions", [])
+        if questions and isinstance(questions, list):
+            q = questions[0].get("question", "")
+            opts = questions[0].get("options", [])
+            
+            # If options are provided, send to /ask so user can answer directly in the notch!
+            if opts and len(opts) >= 2:
+                ask_payload = {
+                    "title": "Antigravity",
+                    "subtitle": q,
+                    "options": opts
+                }
+                try:
+                    req = urllib.request.Request(
+                        f"http://127.0.0.1:{PORT}/ask",
+                        data=json.dumps(ask_payload).encode("utf-8"),
+                        headers={"Content-Type": "application/json"}
+                    )
+                    # Wait up to 28 seconds for user to click button in notch
+                    with urllib.request.urlopen(req, timeout=29) as resp:
+                        raw = resp.read().decode("utf-8")
+                        res = json.loads(raw)
+                        answer_idx = res.get("answer")
+                        label = res.get("label")
+                        if answer_idx is not None and label is not None:
+                            # User answered directly from Dynamic Island!
+                            sys.stdout.write(json.dumps({
+                                "decision": "deny",
+                                "reason": f"Dijawab langsung dari Dynamic Island Ariza Studio: '{label}'"
+                            }))
+                            sys.stdout.flush()
+                            sys.exit(0)
+                except Exception as e:
+                    sys.stderr.write(f"ask endpoint error or timeout: {e}\n")
+                
+                # If timed out or not answered on island, fallback to chat UI
+                sys.stdout.write(json.dumps({"decision": "allow"}))
+                sys.stdout.flush()
+                sys.exit(0)
+            elif q:
+                MESSAGE = q
+                STATUS = "acc"
+                TITLE = "Antigravity"
+
+# 2. Parse CLI args (overriding defaults if provided)
+args_list = sys.argv[1:]
+i = 0
+custom_message = []
+while i < len(args_list):
+    arg = args_list[i]
+    if arg in ("--acc", "--approval"):
+        STATUS = "acc"
+    elif arg in ("--done", "--complete", "--finished"):
+        STATUS = "done"
+    elif arg in ("--running", "--news"):
+        STATUS = "news"
+        IS_NEWS = True
+    elif arg == "--info":
+        STATUS = "info"
+    elif arg == "--title" and i + 1 < len(args_list):
+        TITLE = args_list[i + 1]
+        i += 1
+    else:
+        custom_message.append(arg)
+    i += 1
+
+if custom_message and not MESSAGE:
+    MESSAGE = " ".join(custom_message)
+
+# 3. Handle news / running
+if IS_NEWS:
+    news_file = "/tmp/ariza_news.json"
+    if not os.path.exists(news_file):
+        try:
+            import subprocess
+            subprocess.run([sys.executable, "/Users/dikshatek/Downloads/oyenza-studio/ariza-news.py"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+        except Exception:
+            pass
+    try:
+        with open(news_file, "r", encoding="utf-8") as f:
+            news_items = json.load(f)
+            if news_items:
+                src = news_items[0].get("source", "Berita")
+                hl = news_items[0].get("title", "")
+                TITLE = f"[{src}] {hl}"
+                MESSAGE = "AI sedang bekerja · Klik untuk baca berita terkini"
+    except Exception:
+        TITLE = "AI sedang bekerja"
+        MESSAGE = "Memproses instruksi kamu..."
+
+# Fallbacks for empty message
+if not MESSAGE:
+    if STATUS == "acc":
+        MESSAGE = "Needs your approval (acc) to continue"
+    elif STATUS == "done":
+        MESSAGE = "AI task completed / AI udah beres!"
+    else:
+        MESSAGE = "Notification from agent"
+
+# 4. Send payload to Ariza Studio listener (http://127.0.0.1:48123/notify)
+payload = {
+    "title": TITLE,
+    "subtitle": MESSAGE,
+    "status": STATUS
+}
+
 try:
-    if not os.path.exists('/tmp/ariza_news.json'):
-        import subprocess
-        subprocess.run(['/usr/bin/python3', '/Users/dikshatek/Downloads/oyenza-studio/ariza-news.py'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    with open('/tmp/ariza_news.json') as f:
-        items = json.load(f)
-    if items:
-        print(f\"{items[0]['source']}|{items[0]['title']}\")
-except Exception:
-    pass
-")
-    if [ -n "$NEWS_RES" ]; then
-      SOURCE=$(echo "$NEWS_RES" | cut -d'|' -f1)
-      HEADLINE=$(echo "$NEWS_RES" | cut -d'|' -f2-)
-      TITLE="[$SOURCE] $HEADLINE"
-      MESSAGE="AI sedang bekerja · Klik untuk baca berita terkini"
-    else
-      TITLE="AI sedang bekerja"
-      MESSAGE="Memproses instruksi kamu..."
-    fi
-  fi
-fi
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{PORT}/notify",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"}
+    )
+    with urllib.request.urlopen(req, timeout=3) as resp:
+        sys.stderr.write(f"✓ Notifikasi '{TITLE} ({STATUS})' terkirim ke Ariza Studio Dynamic Island\n")
+except Exception as e:
+    sys.stderr.write(f"✗ Gagal mengirim notifikasi ke port {PORT}: {e}\n")
 
-if [ -z "$MESSAGE" ]; then
-  if [ "$STATUS" = "acc" ]; then
-    MESSAGE="Needs your approval (acc) to continue"
-  elif [ "$STATUS" = "done" ]; then
-    MESSAGE="AI task completed / AI udah beres!"
-  else
-    MESSAGE="Notification from harness"
-  fi
-fi
-
-# Send JSON payload to Ariza Studio
-curl -s -X POST "http://127.0.0.1:$PORT/notify" \
-  -H "Content-Type: application/json" \
-  -d "{\"title\": $(python3 -c "import json; print(json.dumps('$TITLE'))"), \"subtitle\": $(python3 -c "import json; print(json.dumps('$MESSAGE'))"), \"status\": \"$STATUS\"}" > /dev/null
-
-if [ $? -eq 0 ]; then
-  echo "✓ Notifikasi '$TITLE ($STATUS)' terkirim ke Ariza Studio Dynamic Island"
-else
-  echo "✗ Gagal mengirim notifikasi (pastikan Ariza Studio sedang berjalan di port $PORT)"
-fi
+# 5. If this was a hook call, output the required JSON protocol to stdout
+if stdin_json:
+    sys.stdout.write(json.dumps({"decision": "allow"}))
+    sys.stdout.flush()

@@ -1856,6 +1856,8 @@ impl App {
                         reveal: None,
                     });
                     services::play(true);
+                    self.st.page = PageKind::Ai;
+                    self.expand();
                     self.request_frame();
                     return;
                 }
