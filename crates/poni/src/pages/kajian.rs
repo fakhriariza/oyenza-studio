@@ -1,6 +1,6 @@
 //! Belajar Fiqih & Kajian Islam Praktis Harian untuk Ariza Studio.
 //! Mengganti materi otomatis setiap beberapa jam (Fiqih Sholat, Thaharah, Puasa, Muamalah, Adab).
-//! Mendukung auto-sync dari GitHub Raw JSON dan offline caching ke disk.
+//! Mendukung auto-sync dari GitHub Raw JSON, offline caching ke disk, dan tampilan Baca Selengkapnya / Full Deep Dive.
 
 use crate::gfx::{TextStyle, Weight};
 use crate::state::AppState;
@@ -8,7 +8,7 @@ use crate::ui::{wid, wid_n, PillStyle, Ui};
 use poni_core::geom::{palette, Color, Rect};
 use std::sync::{OnceLock, RwLock};
 
-pub const HEIGHT: f32 = 224.0;
+pub const HEIGHT: f32 = 256.0;
 
 pub fn height(_st: &AppState) -> f32 {
     HEIGHT
@@ -112,58 +112,160 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
 
     // 1. Header Bar: Title + Navigation buttons
     let header_y = area.y + 2.0;
-    ui.c.text("Belajar Fiqih & Kajian Praktis 📚", Rect::new(area.x, header_y, 250.0, 20.0), &TextStyle::headline().weight(Weight::Bold).color(accent));
+    ui.c.text("Belajar Fiqih & Kajian Praktis 📚", Rect::new(area.x, header_y, 240.0, 20.0), &TextStyle::headline().weight(Weight::Bold).color(accent));
 
     // Nav buttons: Prev, Counter, Next
     let counter_str = format!("{}/{}", current_idx + 1, n);
-    let nav_btn_w = 28.0;
+    let nav_btn_w = 26.0;
     let next_x = area.right() - nav_btn_w;
     let count_w = 44.0;
     let count_x = next_x - count_w - 4.0;
     let prev_x = count_x - nav_btn_w - 4.0;
 
-    if ui.pill(wid("fiqh.prev"), Rect::new(prev_x, header_y - 2.0, nav_btn_w, 24.0), "◀", None, PillStyle::Utility).clicked {
+    if ui.pill(wid("fiqh.prev"), Rect::new(prev_x, header_y - 2.0, nav_btn_w, 22.0), "◀", None, PillStyle::Utility).clicked {
         st.ui.kajian_quote_idx = (st.ui.kajian_quote_idx + n - 1) % n;
+        st.ui.kajian_scroll = 0.0;
     }
-    ui.c.text(&counter_str, Rect::new(count_x, header_y + 1.0, count_w, 18.0), &TextStyle::footnote().color(palette::TEXT_DIM));
-    if ui.pill(wid("fiqh.next"), Rect::new(next_x, header_y - 2.0, nav_btn_w, 24.0), "▶", None, PillStyle::Utility).clicked {
+    ui.c.text(&counter_str, Rect::new(count_x, header_y, count_w, 18.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+    if ui.pill(wid("fiqh.next"), Rect::new(next_x, header_y - 2.0, nav_btn_w, 22.0), "▶", None, PillStyle::Utility).clicked {
         st.ui.kajian_quote_idx = (st.ui.kajian_quote_idx + 1) % n;
+        st.ui.kajian_scroll = 0.0;
     }
 
-    // 2. Fiqh Study Card
+    let is_expanded = st.ui.kajian_expanded;
     let card_y = header_y + 24.0;
-    let card_h = 114.0;
-    let card = Rect::new(area.x, card_y, area.w, card_h);
-    ui.c.fill_rrect(card, 8.0, Color::white(0.06));
 
-    // Category badge & Title
-    let cat_badge = format!("[ {} ]", lesson.category);
-    ui.c.text(&cat_badge, Rect::new(card.x + 12.0, card.y + 8.0, 140.0, 16.0), &TextStyle::footnote().weight(Weight::Bold).color(palette::GREEN));
-    ui.c.text(&lesson.title, Rect::new(card.x + 12.0, card.y + 26.0, card.w - 24.0, 20.0), &TextStyle::body().weight(Weight::Bold));
+    if !is_expanded {
+        // ==================== MODE RINGKAS (COLLAPSED) ====================
+        let card_h = 152.0;
+        let card = Rect::new(area.x, card_y, area.w, card_h);
+        ui.c.fill_rrect(card, 10.0, Color::white(0.06));
 
-    // Summary (Intisari)
-    ui.c.text(&lesson.summary, Rect::new(card.x + 12.0, card.y + 48.0, card.w - 24.0, 18.0), &TextStyle::footnote());
+        // Category badge
+        let cat_badge = format!("[ {} ]", lesson.category);
+        ui.c.text(&cat_badge, Rect::new(card.x + 12.0, card.y + 10.0, 160.0, 16.0), &TextStyle::footnote().weight(Weight::Bold).color(palette::GREEN));
 
-    // Detail & Dalil
-    ui.c.text(&lesson.detail, Rect::new(card.x + 12.0, card.y + 68.0, card.w - 24.0, 18.0), &TextStyle::footnote().color(palette::TEXT_DIM));
-    let dalil_str = format!("📌 Dalil: {}", lesson.dalil);
-    ui.c.text(&dalil_str, Rect::new(card.x + 12.0, card.y + 90.0, card.w - 24.0, 16.0), &TextStyle::caption().color(palette::ORANGE));
-
-    // 3. Audio & Podcast Shortcut row (Buka di Spotify)
-    let audio_y = card.bottom() + 10.0;
-    ui.c.text("Putar Audio Kajian & Murottal (Spotify):", Rect::new(area.x, audio_y, 250.0, 16.0), &TextStyle::caption().color(palette::TEXT_DIM));
-
-    let chips_y = audio_y + 16.0;
-    let mut px = area.x;
-    for (i, (label, url)) in PODCASTS.iter().enumerate() {
-        let pw = ui.pill_width(label, false, true);
-        if px + pw > area.right() {
-            break;
+        // Tombol Baca Selengkapnya di pojok kanan atas kartu
+        let readmore_w = 148.0;
+        let readmore_rect = Rect::new(card.right() - readmore_w - 10.0, card.y + 7.0, readmore_w, 22.0);
+        if ui.pill(wid("fiqh.readmore"), readmore_rect, "📖 Baca Lengkap ▾", None, PillStyle::Primary(accent)).clicked {
+            st.ui.kajian_expanded = true;
+            st.ui.kajian_scroll = 0.0;
         }
-        let b = Rect::new(px, chips_y, pw, 24.0);
-        if ui.pill(wid_n("kajian.podcast", i as u64), b, label, None, PillStyle::Primary(palette::GREEN)).clicked {
-            let _ = std::process::Command::new("open").arg(url).spawn();
+
+        // Title (wrapped)
+        let title_st = TextStyle::headline().weight(Weight::Bold).wrap().top();
+        let avail_title_w = card.w - readmore_w - 32.0;
+        let (_, title_h) = ui.c.measure(&lesson.title, &title_st, avail_title_w);
+        ui.c.text(&lesson.title, Rect::new(card.x + 12.0, card.y + 28.0, avail_title_w, title_h + 1.0), &title_st);
+
+        // Intisari / Summary (wrapped multiline, fully readable!)
+        let sum_y = card.y + 32.0 + title_h.max(18.0);
+        let sum_st = TextStyle::footnote().wrap().top();
+        let max_sum_h = (card.bottom() - 26.0 - sum_y).max(20.0);
+        let (_, sum_h) = ui.c.measure(&lesson.summary, &sum_st, card.w - 24.0);
+        let draw_sum_h = sum_h.min(max_sum_h);
+        ui.c.text(&lesson.summary, Rect::new(card.x + 12.0, sum_y, card.w - 24.0, draw_sum_h + 1.0), &sum_st);
+
+        // Dalil di bagian bawah kartu
+        let dalil_str = format!("📌 {}", lesson.dalil);
+        ui.c.text(&dalil_str, Rect::new(card.x + 12.0, card.bottom() - 20.0, card.w - 24.0, 16.0), &TextStyle::caption().color(palette::ORANGE));
+
+        // 3. Audio & Podcast Shortcut row (Buka di Spotify)
+        let audio_y = card.bottom() + 10.0;
+        ui.c.text("Putar Audio Kajian & Murottal (Spotify):", Rect::new(area.x, audio_y, 250.0, 16.0), &TextStyle::caption().color(palette::TEXT_DIM));
+
+        let chips_y = audio_y + 16.0;
+        let mut px = area.x;
+        for (i, (label, url)) in PODCASTS.iter().enumerate() {
+            let pw = ui.pill_width(label, false, true);
+            if px + pw > area.right() {
+                break;
+            }
+            let b = Rect::new(px, chips_y, pw, 22.0);
+            if ui.pill(wid_n("kajian.podcast", i as u64), b, label, None, PillStyle::Primary(palette::GREEN)).clicked {
+                let _ = std::process::Command::new("open").arg(url).spawn();
+            }
+            px += pw + 6.0;
         }
-        px += pw + 6.0;
+    } else {
+        // ==================== MODE DETAIL LENGKAP (EXPANDED READ MORE) ====================
+        let card_h = area.bottom() - card_y;
+        let card = Rect::new(area.x, card_y, area.w, card_h);
+        ui.c.fill_rrect(card, 10.0, Color::white(0.08));
+
+        // Top action bar inside card
+        let cat_badge = format!("[ {} ]", lesson.category);
+        ui.c.text(&cat_badge, Rect::new(card.x + 12.0, card.y + 9.0, 160.0, 16.0), &TextStyle::footnote().weight(Weight::Bold).color(palette::GREEN));
+
+        // Close button
+        let close_w = 84.0;
+        let close_r = Rect::new(card.right() - close_w - 10.0, card.y + 6.0, close_w, 22.0);
+        if ui.pill(wid("fiqh.collapse"), close_r, "▴ Ringkas", None, PillStyle::Utility).clicked {
+            st.ui.kajian_expanded = false;
+        }
+
+        // Copy button
+        let copy_w = 70.0;
+        let copy_r = Rect::new(close_r.x - copy_w - 6.0, card.y + 6.0, copy_w, 22.0);
+        if ui.pill(wid("fiqh.copy"), copy_r, "📋 Salin", None, PillStyle::Utility).clicked {
+            let copy_text = format!(
+                "📚 {}\n[{}]\n\n💡 Intisari:\n{}\n\n📝 Panduan Praktis:\n{}\n\n📌 Dalil:\n{}\n\n(Ariza Studio)",
+                lesson.title, lesson.category, lesson.summary, lesson.detail, lesson.dalil
+            );
+            #[cfg(target_os = "macos")]
+            crate::services::clipboard::set_text(&copy_text);
+        }
+
+        // Viewable scrolling content inside card
+        let view = Rect::new(card.x + 12.0, card.y + 32.0, card.w - 24.0, card.h - 40.0);
+
+        // Calculate heights of all sections
+        let title_st = TextStyle::headline().weight(Weight::Bold).wrap().top();
+        let (_, title_h) = ui.c.measure(&lesson.title, &title_st, view.w);
+
+        let sum_st = TextStyle::footnote().wrap().top();
+        let (_, sum_h) = ui.c.measure(&lesson.summary, &sum_st, view.w);
+
+        let det_st = TextStyle::footnote().color(Color::white(0.85)).wrap().top();
+        let (_, det_h) = ui.c.measure(&lesson.detail, &det_st, view.w);
+
+        let dalil_st = TextStyle::footnote().color(palette::ORANGE).wrap().top();
+        let (_, dalil_h) = ui.c.measure(&lesson.dalil, &dalil_st, view.w);
+
+        let total_content_h = title_h + 8.0 + 18.0 + sum_h + 10.0 + 18.0 + det_h + 10.0 + 18.0 + dalil_h + 16.0;
+        let max_scroll = (total_content_h - view.h).max(0.0);
+        if max_scroll > 0.0 {
+            let notches = ui.wheel_in(card);
+            st.ui.kajian_scroll = (st.ui.kajian_scroll - notches * 26.0).clamp(0.0, max_scroll);
+        }
+        let scroll = st.ui.kajian_scroll;
+
+        ui.c.clip(view);
+
+        let mut y = view.y - scroll;
+
+        // Title
+        ui.c.text(&lesson.title, Rect::new(view.x, y, view.w, title_h + 1.0), &title_st);
+        y += title_h + 8.0;
+
+        // Section 1: Intisari Hukum
+        ui.c.text("💡 INTISARI HUKUM:", Rect::new(view.x, y, view.w, 16.0), &TextStyle::caption().weight(Weight::Bold).color(accent));
+        y += 18.0;
+        ui.c.text(&lesson.summary, Rect::new(view.x, y, view.w, sum_h + 1.0), &sum_st);
+        y += sum_h + 10.0;
+
+        // Section 2: Panduan & Detail Praktis
+        ui.c.text("📝 PANDUAN & CARA PRAKTIS:", Rect::new(view.x, y, view.w, 16.0), &TextStyle::caption().weight(Weight::Bold).color(palette::GREEN));
+        y += 18.0;
+        ui.c.text(&lesson.detail, Rect::new(view.x, y, view.w, det_h + 1.0), &det_st);
+        y += det_h + 10.0;
+
+        // Section 3: Dalil & Rujukan
+        ui.c.text("📌 DALIL & RUJUKAN:", Rect::new(view.x, y, view.w, 16.0), &TextStyle::caption().weight(Weight::Bold).color(palette::ORANGE));
+        y += 18.0;
+        ui.c.text(&lesson.dalil, Rect::new(view.x, y, view.w, dalil_h + 1.0), &dalil_st);
+
+        ui.c.unclip();
     }
 }

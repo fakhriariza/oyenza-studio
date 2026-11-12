@@ -362,6 +362,8 @@ pub struct PageUiState {
     pub fitness_food_input: String,
     pub fitness_weight_input: f32,
     pub kajian_quote_idx: usize,
+    pub kajian_expanded: bool,
+    pub kajian_scroll: f32,
     pub task_scroll: f32,
     pub shelf_scroll: f32,
     /// The Today page's list: how far it's scrolled (DIPs), the date clicked
