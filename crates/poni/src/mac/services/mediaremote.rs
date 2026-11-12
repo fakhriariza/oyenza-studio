@@ -43,10 +43,19 @@ impl Adapter {
     /// The adapter the app carries, copied where perl loads it from. `None`
     /// in a build without it (`cargo run`), or when the copy failed.
     pub fn find() -> Option<Adapter> {
-        let exe = std::env::current_exe().ok()?;
-        let contents = exe.parent()?.parent()?;
-        let bundled = contents.join("Frameworks").join(format!("{NAME}.framework"));
-        let script = contents.join("Resources").join(SCRIPT);
+        let (bundled, script) = if let Ok(exe) = std::env::current_exe() {
+            let contents = exe.parent().and_then(|p| p.parent());
+            let b = contents.map(|c| c.join("Frameworks").join(format!("{NAME}.framework")));
+            let s = contents.map(|c| c.join("Resources").join(SCRIPT));
+            if b.as_ref().is_some_and(|p| p.join(NAME).is_file()) && s.as_ref().is_some_and(|p| p.is_file()) {
+                (b.unwrap(), s.unwrap())
+            } else {
+                let root = PathBuf::from("/Users/dikshatek/Downloads/oyenza-studio");
+                (root.join("Frameworks").join(format!("{NAME}.framework")), root.join("third_party/mediaremote-adapter/bin").join(SCRIPT))
+            }
+        } else {
+            return None;
+        };
         if !bundled.join(NAME).is_file() || !script.is_file() || !Path::new(PERL).is_file() {
             return None;
         }
