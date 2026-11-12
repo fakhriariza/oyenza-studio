@@ -15,6 +15,7 @@ it, puts the monogram in his place, and adds the wordmark.
 | `ariza-studio-icon.ico` | The same tile as a Windows icon, every size drawn on its own (16–256) |
 | `ariza-studio-lockup.svg`, `.png`, `-1024.png` | Tile and wordmark, for light backgrounds |
 | `ariza-studio-lockup-dark.svg`, `.png` | The same for dark backgrounds; the tile is unchanged, the name turns white |
+| `ariza-wordmark.svg`, `.png`, `-1024.png`, `ariza-wordmark-dark.svg` | The name alone, same outlines: for a header, a card or a slide that already carries the tile |
 | `preview.png` | The sheet: both lockups, the mark at 200/128/64/32 px, the palette |
 
 The PNGs are drawn from the same geometry as the SVGs, three times over and then scaled down, so the two
@@ -55,6 +56,17 @@ that band: no second line, no tagline, no border.
 **Smallest sizes.** Lockup 96 px wide; below that the name stops being readable, so use the mark alone. The
 mark works down to 16 px (it is the favicon), but the island's cover and the equalizer disappear under 32 px
 — that is how the Oyenza tile behaves too.
+
+## Where it is used
+
+| Where | File |
+|---|---|
+| The Mac app's icon (`CFBundleIconFile` in `installer/mac/Info.plist`) | `installer/mac/ArizaStudio.icns`, drawn by `tools/make_mac_icon.py --ariza` |
+| The landing page: header, top bar, favicon, version badge (`site/index.html`) | `ariza-mark.svg`, shipped by `tools/build_site.sh` into `_site/brand/ariza/` |
+| The AI tab of the island, while an agent waits (`crates/poni/src/pages/ask.rs`) | the app's own `Icon::Ai`: the page is a question, not this mark |
+
+The Windows build's icon (`crates/poni/res/poni.ico`) and the tray still carry Oyenza's mark: changing them
+means drawing the Ariza tile at every icon size into that file, which `tools/make_brand.py` does for Oyenza.
 
 ## Colour
 

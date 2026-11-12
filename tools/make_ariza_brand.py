@@ -12,6 +12,7 @@ Writes brand/ariza/:
   ariza-mark.svg, ariza-mark-*.png     the tile alone
   ariza-studio-icon.ico                app, window and tray icon, every size drawn on its own
   ariza-studio-lockup{,-dark}.svg/png  tile + wordmark, for light and for dark backgrounds
+  ariza-wordmark{,-dark}.svg/png       the name alone, where the tile is already there
   preview.png                          the sheet: both lockups, the mark, the palette
 
 The island, the album cover and the equalizer come from tools/make_brand.py, unchanged: this file takes its
@@ -366,6 +367,33 @@ def lockup_svg(mark: Wordmark, ink: str) -> str:
             f'{tile}\n{text}\n</svg>\n')
 
 
+def wordmark_svg(mark: Wordmark, ink: str) -> str:
+    """The name alone, outlined: for places that already carry the tile (a header, a card)."""
+    p = Plan(mark)
+    k = p.size / mark.upm
+    x0, x1 = p.x0 + mark.ink[0] * k, p.x0 + mark.ink[2] * k
+    y0, y1 = p.baseline - mark.ink[3] * k, p.baseline - mark.ink[1] * k
+    w, h = x1 - x0, y1 - y0
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{x0:.1f} {y0:.1f} {w:.1f} {h:.1f}" '
+            f'width="{w:.1f}" height="{h:.1f}"><title>Ariza Studio</title>'
+            f'<path d="{mark.path(p.size, p.x0, p.baseline)}" fill="{ink}"/></svg>\n')
+
+
+def wordmark_png(mark: Wordmark, ink: str, width: int = 2048, ss: int = 3) -> Image.Image:
+    """The name alone, from the same geometry as its svg."""
+    p = Plan(mark)
+    k = p.size / mark.upm
+    x0, x1 = p.x0 + mark.ink[0] * k, p.x0 + mark.ink[2] * k
+    y0, y1 = p.baseline - mark.ink[3] * k, p.baseline - mark.ink[1] * k
+    kk = width / (x1 - x0) * ss
+    cw, ch = round((x1 - x0) * kk), round((y1 - y0) * kk)
+    mask = Image.new("L", (cw, ch), 0)
+    fill_nonzero(mask, mark.placed(p.size * kk, (p.x0 - x0) * kk, (p.baseline - y0) * kk))
+    out = Image.new("RGBA", (cw, ch), ink)
+    out.putalpha(mask)
+    return out.resize((width, round(width * (y1 - y0) / (x1 - x0))), Image.LANCZOS)
+
+
 def lockup_png(mark: Wordmark, ink: str, width: int = 2048, ss: int = 3) -> Image.Image:
     """The lockup from the same geometry as the svg: drawn at ss x, then LANCZOS down."""
     p = Plan(mark)
@@ -472,6 +500,11 @@ def main() -> int:
 
     OUT.joinpath("ariza-studio-lockup.svg").write_text(lockup_svg(mark, INK))
     OUT.joinpath("ariza-studio-lockup-dark.svg").write_text(lockup_svg(mark, INK_DARK))
+    OUT.joinpath("ariza-wordmark.svg").write_text(wordmark_svg(mark, INK))
+    OUT.joinpath("ariza-wordmark-dark.svg").write_text(wordmark_svg(mark, INK_DARK))
+    wordmark_png(mark, INK, 2048).save(OUT / "ariza-wordmark.png", optimize=True)
+    wordmark_png(mark, INK, 1024).save(OUT / "ariza-wordmark-1024.png", optimize=True)
+
     light = lockup_png(mark, INK, 2048)
     dark = lockup_png(mark, INK_DARK, 2048)
     light.save(OUT / "ariza-studio-lockup.png", optimize=True)
