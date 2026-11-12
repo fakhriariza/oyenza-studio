@@ -22,6 +22,7 @@ CACHE_FILE = "/tmp/ariza_spotify_playlists.json"
 PORT = 8888
 REDIRECT_URI = f"http://127.0.0.1:{PORT}/callback"
 SCOPES = "user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-read-private user-top-read user-read-recently-played"
+DEFAULT_CLIENT_ID = "17d4ad02c14447449b9d89e3c1e68e86"
 
 HTML_SETUP = """<!DOCTYPE html>
 <html lang="id">
@@ -173,13 +174,15 @@ HTML_SUCCESS = """<!DOCTYPE html>
 """
 
 def load_config():
+    cfg = {"client_id": DEFAULT_CLIENT_ID}
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
-                return json.load(f)
+                loaded = json.load(f)
+                cfg.update(loaded)
         except Exception:
             pass
-    return {}
+    return cfg
 
 def save_config(cfg):
     os.makedirs(CONFIG_DIR, exist_ok=True)
