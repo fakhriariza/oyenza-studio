@@ -11,15 +11,35 @@ use crate::events::{AppEvent, EventSink};
 use serde::Deserialize;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::mpsc::{channel, Sender};
+use std::sync::Mutex;
 use std::thread;
+use std::time::Duration;
 
 pub const DEFAULT_PORT: u16 = 48123;
+/// How long `/ask` holds its request open: half an hour for someone to answer.
+const ASK_WAIT: Duration = Duration::from_secs(1800);
+
+/// The question whose answer the island owes, if one is up.
+static PENDING: Mutex<Option<Sender<usize>>> = Mutex::new(None);
+
+/// The answer someone picked in the island (0-based, the option's index).
+pub fn answer(i: usize) {
+    if let Ok(mut g) = PENDING.lock() {
+        if let Some(tx) = g.take() {
+            let _ = tx.send(i);
+        }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct HarnessPayload {
     pub title: Option<String>,
     pub subtitle: Option<String>,
     pub status: Option<String>,
+    /// `/ask` only: what the person may answer, in the order shown.
+    #[serde(default)]
+    pub options: Vec<String>,
 }
 
 pub struct HarnessService {
@@ -53,6 +73,51 @@ impl HarnessService {
     }
 }
 
+/// `POST /ask`: show the question in the island and hold the request open until
+/// someone answers. The reply is `{"answer": 0, "label": "..."}`, or `{"answer":
+/// null}` once nobody answered in time.
+fn answer_ask(mut stream: TcpStream, req: &str, sink: EventSink) {
+    let body = req.split_once("\r\n\r\n").map(|(_, b)| b).unwrap_or("");
+    let p = match serde_json::from_str::<HarnessPayload>(body) {
+        Ok(p) if p.options.len() >= 2 => p,
+        _ => {
+            let _ = stream.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"options: at least two\"}\r\n");
+            return;
+        }
+    };
+    let title = p.title.unwrap_or_else(|| "DeepSeek Harness".to_string());
+    let question = p.subtitle.unwrap_or_else(|| "Needs your answer".to_string());
+
+    let (tx, rx) = channel();
+    if let Ok(mut g) = PENDING.lock() {
+        *g = Some(tx);
+    }
+    crate::state::set_ask(crate::state::Ask {
+        title: title.clone(),
+        question: question.clone(),
+        options: p.options.clone(),
+        until: crate::clock::mono() + ASK_WAIT.as_secs_f64(),
+    });
+    sink.send(AppEvent::HarnessNotice { title, subtitle: question.clone(), status: "ask".into() });
+
+    pinfo!("harness: asked \"{question}\" with {} answers", p.options.len());
+    let picked = rx.recv_timeout(ASK_WAIT).ok();
+    if picked.is_none() {
+        crate::state::take_ask();  // nobody answered: don't leave it on screen
+    }
+    pinfo!("harness: answered {picked:?}");
+    let body = match picked.and_then(|i| p.options.get(i).map(|l| (i, l.clone()))) {
+        Some((i, label)) => serde_json::json!({ "answer": i, "label": label }).to_string(),
+        None => "{\"answer\":null}".to_string(),
+    };
+    let resp = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let _ = stream.write_all(resp.as_bytes());
+}
+
 fn handle_connection(mut stream: TcpStream, sink: EventSink) {
     let mut buf = [0u8; 4096];
     let n = match stream.read(&mut buf) {
@@ -68,6 +133,22 @@ fn handle_connection(mut stream: TcpStream, sink: EventSink) {
     let path = parts.next().unwrap_or("");
 
     let mut payload: Option<HarnessPayload> = None;
+
+    if method == "GET" && path.starts_with("/answer") {
+        // Answering over HTTP, for a script or a phone: the island's own pills
+        // take this same path.
+        let i = path.split_once("i=").and_then(|(_, v)| v.split('&').next()).and_then(|v| v.parse::<usize>().ok());
+        if let Some(i) = i {
+            answer(i);
+        }
+        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"ok\":true}\r\n");
+        return;
+    }
+
+    if method == "POST" && path.starts_with("/ask") {
+        answer_ask(stream, &req, sink);
+        return;
+    }
 
     if method == "POST" {
         if let Some(body_start) = req.find("\r\n\r\n") {
@@ -92,7 +173,7 @@ fn handle_connection(mut stream: TcpStream, sink: EventSink) {
                     _ => {}
                 }
             }
-            payload = Some(HarnessPayload { title, subtitle, status });
+            payload = Some(HarnessPayload { title, subtitle, status, options: Vec::new() });
         }
     }
 

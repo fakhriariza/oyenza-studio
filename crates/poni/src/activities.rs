@@ -313,6 +313,8 @@ pub fn geom(m: &Mode, st: &AppState) -> Geom {
         Mode::Hud(HudTag::Volume) => Geom::new(316.0, 40.0, 19.0),
         Mode::Hud(HudTag::Charging) | Mode::Hud(HudTag::LowBattery) => Geom::new(300.0, 40.0, 19.0),
         Mode::Hud(HudTag::Bluetooth) => Geom::new(336.0, 46.0, 22.0),
+        // A question has answers beside it, so it asks for more room.
+        Mode::Notice if crate::state::ask().is_some() => Geom::new(560.0, 52.0, 24.0),
         Mode::Notice => Geom::new(372.0, 52.0, 24.0),
         Mode::Expanded(p) => {
             let h = pages::HEADER_H + pages::content_height(*p, st) + pages::PAD;
@@ -944,13 +946,18 @@ fn inline_done(st: &AppState, a: InlineAction) -> bool {
         InlineAction::StopAdzan => !st.prayer.adzan,
         // Done once clicked: the app puts the check in the notice's icon.
         InlineAction::WhatsNew => st.notice.as_ref().is_some_and(|n| n.icon == Icon::Check),
-        // Hide and Open take the notice away at once.
-        InlineAction::Hide | InlineAction::Open => false,
+        // Hide and Open take the notice away at once; an answer draws its own
+        // pills (see `draw_question`), never this check.
+        InlineAction::Hide | InlineAction::Open | InlineAction::Answer => false,
     }
 }
 
 fn draw_notice(ui: &mut Ui, st: &mut AppState, body: Rect) {
     let Some(n) = st.notice.clone() else { return };
+    if n.inline == Some(InlineAction::Answer) {
+        draw_question(ui, st, body, &n);
+        return;
+    }
     let cy = body.center().y;
     // Disc and inline pill keep the same 16 DIP inset from the ends.
     let c = Point::new(body.x + 32.0, cy);
@@ -984,6 +991,36 @@ fn draw_notice(ui: &mut Ui, st: &mut AppState, body: Rect) {
     }
 }
 
+/// A question from an AI agent, open in the island: the same notice, but the
+/// answers are pills at the right end, one per option, the last at the end.
+fn draw_question(ui: &mut Ui, st: &AppState, body: Rect, n: &Notice) {
+    let cy = body.center().y;
+    let c = Point::new(body.x + 32.0, cy);
+    ui.c.fill_circle(c, 16.0, n.color.with_alpha(0.22));
+    ui.c.icon(n.icon, Rect::from_center(c, 18.0, 18.0), n.color);
+
+    let opts = crate::state::ask().map(|q| q.options).unwrap_or_default();
+    let ws: Vec<f32> = opts.iter().map(|l| ui.pill_width(l, false, true).max(64.0)).collect();
+    let mut right = body.right() - 16.0;
+    let mut rects = vec![Rect::new(0.0, 0.0, 0.0, 0.0); opts.len()];
+    for (i, w) in ws.iter().enumerate().rev() {
+        rects[i] = Rect::new(right - w, cy - PILL_SMALL / 2.0, *w, PILL_SMALL);
+        right = rects[i].x - 8.0;
+    }
+
+    let tx = c.x + 16.0 + 10.0;
+    let text_right = rects.first().map_or(body.right() - 22.0, |r| r.x - 12.0);
+    let tw = (text_right - tx).max(0.0);
+    notice_title(ui, n, Rect::new(tx, cy - 18.0, tw, 20.0), TextStyle::headline());
+    ui.c.text(&n.subtitle, Rect::new(tx, cy + 1.0, tw, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+
+    ui.button(wid("notice"), body);
+    for (i, (label, r)) in opts.iter().zip(rects).enumerate() {
+        let style = if i == 0 { PillStyle::Primary(n.color) } else { PillStyle::Utility };
+        ui.pill(crate::ui::wid_n("notice.opt", i as u64), r, label, None, style);
+    }
+}
+
 /// An inline action's label, icon and colour. Hide is a plain grey pill
 /// beside the notice's own words (no icon, no colour), as in Screen Studio.
 pub(crate) fn inline_look(st: &AppState, n: &Notice, a: InlineAction) -> (&'static str, Option<Icon>, Color) {
@@ -995,6 +1032,9 @@ pub(crate) fn inline_look(st: &AppState, n: &Notice, a: InlineAction) -> (&'stat
         InlineAction::WhatsNew => ("What's new", Some(Icon::Open), n.color),
         // Another app's notification: open that app.
         InlineAction::Open => ("Open", Some(Icon::Open), n.color),
+        // A question's answers are their own labels (`draw_question`); this is
+        // only what the width maths falls back to.
+        InlineAction::Answer => ("Answer", Some(Icon::Ai), n.color),
         InlineAction::Hide => ("Hide", None, palette::TEXT_DIM),
     }
 }

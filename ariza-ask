@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# ariza-ask: ask the person a question in Ariza Studio's island and wait for the answer.
+#
+#   ariza-ask "Mau lanjut ke sweep teks halaman?" "Ya" "Tidak"
+#   ariza-ask --title "Claude Code" "Deploy sekarang?" "Ya" "Nanti"
+#
+# Prints the chosen label and exits 0. Exits 1 if nobody answered (half an hour),
+# or if Ariza Studio isn't running (its listener is on 127.0.0.1:48123).
+PORT=48123
+TITLE="DeepSeek Harness"
+ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --title) TITLE="$2"; shift 2 ;;
+    --) shift; ARGS+=("$@"); break ;;
+    *) ARGS+=("$1"); shift ;;
+  esac
+done
+
+if [ ${#ARGS[@]} -lt 3 ]; then
+  echo "usage: ariza-ask [--title TITLE] \"question\" \"option 1\" \"option 2\" ..." >&2
+  exit 2
+fi
+
+QUESTION="${ARGS[0]}"
+OPTIONS=("${ARGS[@]:1}")
+PAYLOAD=$(/usr/bin/python3 -c 'import json,sys; print(json.dumps({"title":sys.argv[1],"subtitle":sys.argv[2],"options":sys.argv[3:]}))' "$TITLE" "$QUESTION" "${OPTIONS[@]}") || exit 2
+
+REPLY=$(printf '%s' "$PAYLOAD" | curl -s --max-time 1860 -X POST "http://127.0.0.1:$PORT/ask" \
+  -H "Content-Type: application/json" --data-binary @-)
+if [ -z "$REPLY" ]; then
+  echo "✗ Ariza Studio tidak menjawab (jalankan dulu, listener di port $PORT)" >&2
+  exit 1
+fi
+
+LABEL=$(printf '%s' "$REPLY" | /usr/bin/python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("label") or "")')
+if [ -z "$LABEL" ]; then
+  echo "✗ tidak dijawab" >&2
+  exit 1
+fi
+echo "$LABEL"

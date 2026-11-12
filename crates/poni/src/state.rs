@@ -160,6 +160,43 @@ pub enum InlineAction {
     WhatsNew,
     /// Open the app a notification came from (the notice's `OpenApp`).
     Open,
+    /// Open the island on an AI's question, where the answer's buttons are.
+    Answer,
+}
+
+/// A question an AI agent asked, waiting for an answer from the island.
+///
+/// One at a time: the agent's script holds its request open until someone
+/// picks an answer (or gives up), so a second question would have nowhere to
+/// go. The island draws it, the app's click handler takes it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Ask {
+    pub title: String,
+    pub question: String,
+    /// The answers, in the order the agent listed them.
+    pub options: Vec<String>,
+    /// When the agent stops waiting (`AppState::now` seconds); the island
+    /// takes the question away then.
+    pub until: f64,
+}
+
+/// The question waiting for an answer, if any. Shared rather than copied into
+/// `AppState` because the agent's listener thread puts it there.
+static ASK: std::sync::Mutex<Option<Ask>> = std::sync::Mutex::new(None);
+
+pub fn set_ask(a: Ask) {
+    if let Ok(mut g) = ASK.lock() {
+        *g = Some(a);
+    }
+}
+
+/// The question on screen, if one is waiting.
+pub fn ask() -> Option<Ask> {
+    ASK.lock().ok().and_then(|g| g.clone())
+}
+
+pub fn take_ask() -> Option<Ask> {
+    ASK.lock().ok().and_then(|mut g| g.take())
 }
 
 /// Whether this copy may read other apps' notifications (the Notifications

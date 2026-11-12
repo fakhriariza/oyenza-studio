@@ -1839,6 +1839,26 @@ impl App {
             }
             AppEvent::Oyenza(ev) => self.on_oyenza(ev),
             AppEvent::HarnessNotice { title, subtitle, status } => {
+                // An agent's question: the island shows it, and the pills it
+                // draws are the answers (`services::harness::answer` sends the
+                // picked one back to the agent that is waiting).
+                if status == "ask" {
+                    self.st.notice = Some(Notice {
+                        icon: Icon::Ai,
+                        color: self.st.accent,
+                        title,
+                        title_dim: "asks you".to_string(),
+                        subtitle,
+                        // The question leaves when the agent stops waiting (`Ask::until`).
+                        until: crate::state::ask().map_or(self.st.now + 1805.0, |q| q.until),
+                        action: None,
+                        inline: Some(InlineAction::Answer),
+                        reveal: None,
+                    });
+                    services::play(true);
+                    self.request_frame();
+                    return;
+                }
                 let is_acc = status == "acc" || status == "approval";
                 let is_done = status == "done" || status == "completed" || status == "ok";
                 let is_news = status == "news" || status == "running";
@@ -2578,6 +2598,11 @@ impl App {
                         // The notice's inline pill acts in place without expanding.
                         self.input.pressed_id = None;
                         self.run_inline_action(a);
+                    } else if let Some(i) = self.notice_option(self.input.pressed_id) {
+                        // An answer: the agent's request gets it and the
+                        // question leaves, without opening the island.
+                        self.input.pressed_id = None;
+                        self.answer_question(i);
                     } else if self.input.pressed_id == Some(wid(activities::PRAYER_OK_ID)) {
                         // The prayer countdown's OK, the same way.
                         self.input.pressed_id = None;
@@ -2962,6 +2987,27 @@ impl App {
 
     /// Run a notice's inline action in place (the island stays collapsed),
     /// then show a check mark in the pill briefly before the notice leaves.
+    /// Which of a question's answer pills `id` is, if it is one.
+    fn notice_option(&self, id: Option<crate::ui::WidgetId>) -> Option<usize> {
+        let id = id?;
+        (0..8).find(|i| id == crate::ui::wid_n("notice.opt", *i as u64))
+    }
+
+    /// Someone picked answer `i`: send it to the agent that asked, and take
+    /// the question away.
+    fn answer_question(&mut self, i: usize) {
+        self.refresh_time();
+        crate::state::take_ask();
+        if self.st.notice.as_ref().is_some_and(|n| n.inline == Some(InlineAction::Answer)) {
+            self.st.notice = None;
+        }
+        services::harness::answer(i);
+        if self.expanded {
+            self.collapse();
+        }
+        self.request_frame();
+    }
+
     fn run_inline_action(&mut self, a: InlineAction) {
         self.refresh_time();
         if a == InlineAction::StopAdzan {
@@ -3005,7 +3051,8 @@ impl App {
         }
         match a {
             InlineAction::StartFocus => st.pomodoro.start(st.now),
-            InlineAction::ShowAmount | InlineAction::StopAdzan | InlineAction::Hide | InlineAction::WhatsNew | InlineAction::Open => {}
+            InlineAction::ShowAmount | InlineAction::StopAdzan | InlineAction::Hide | InlineAction::WhatsNew
+            | InlineAction::Open | InlineAction::Answer => {}
         }
         let until = st.now + INLINE_DONE_S;
         if let Some(n) = st.notice.as_mut() {
