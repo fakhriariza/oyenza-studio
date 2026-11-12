@@ -8,3 +8,6 @@
 /after
 /ci-artifacts
 /_site
+/.pylib
+/.cache
+/tools/__pycache__
