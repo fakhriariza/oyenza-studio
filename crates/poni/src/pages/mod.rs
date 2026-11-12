@@ -18,6 +18,7 @@ pub mod downloads_offer;
 pub mod focus;
 pub mod health;
 pub mod ielts;
+pub mod kajian;
 pub mod media;
 pub mod notes;
 pub mod notifications;
@@ -89,6 +90,8 @@ pub enum PageKind {
     Record,
     /// Prayer times, while that add-on is on ([`tabs`]).
     Prayer,
+    /// Islamic study, podcasts, murottal & daily wisdom.
+    Kajian,
     /// The IHSG and the person's stocks, while the Stocks add-on is on ([`tabs`]).
     Stocks,
     /// The day's caffeine, while the Caffeine add-on is on ([`tabs`]).
@@ -106,13 +109,15 @@ pub enum PageKind {
 }
 
 impl PageKind {
-    /// The tab row's order in Ariza Studio: Music, AI, Shelf, Focus, Prayer, Tasks, Settings.
-    pub const ALL: [PageKind; 7] = [
+    /// The tab row's order in Ariza Studio: Music, AI, Fitness, Prayer, Kajian, Tasks, Settings.
+    pub const ALL: [PageKind; 9] = [
         PageKind::Media,
         PageKind::Ai,
+        PageKind::Health,
+        PageKind::Prayer,
+        PageKind::Kajian,
         PageKind::Shelf,
         PageKind::Focus,
-        PageKind::Prayer,
         PageKind::Tasks,
         PageKind::Settings,
     ];
@@ -133,6 +138,7 @@ impl PageKind {
             PageKind::Record => "record",
             PageKind::Oyenza => "oyenza",
             PageKind::Prayer => "prayer",
+            PageKind::Kajian => "kajian",
             PageKind::Stocks => "stocks",
             PageKind::Caffeine => "caffeine",
             PageKind::Downloads => "downloads",
@@ -164,6 +170,7 @@ impl PageKind {
             PageKind::Record => "Record",
             PageKind::Oyenza => "Oyenza",
             PageKind::Prayer => "Prayer",
+            PageKind::Kajian => "Kajian",
             PageKind::Stocks => "Stocks",
             PageKind::Caffeine => "Caffeine",
             PageKind::Downloads => "Downloads",
@@ -189,6 +196,7 @@ impl PageKind {
             PageKind::Record => Icon::Recorder,
             PageKind::Oyenza => Icon::Wallet,
             PageKind::Prayer => Icon::Moon,
+            PageKind::Kajian => Icon::Mic,
             PageKind::Stocks => Icon::Stocks,
             PageKind::Caffeine => Icon::Coffee,
             PageKind::Downloads => Icon::Download,
@@ -217,13 +225,14 @@ impl PageKind {
     /// Notifications, which goes off with its tab (it's offered only where
     /// the copy can read notifications). Oyenza stays; the add-ons' pages come
     /// and go with their switches, AI's with Studio Pro.
-    pub const HIDEABLE: [PageKind; 7] = [
+    pub const HIDEABLE: [PageKind; 8] = [
         PageKind::Media,
         PageKind::Ai,
         PageKind::Health,
+        PageKind::Prayer,
+        PageKind::Kajian,
         PageKind::Shelf,
         PageKind::Focus,
-        PageKind::Prayer,
         PageKind::Tasks,
     ];
 
@@ -254,9 +263,10 @@ fn row(_st: &AppState, _open: Option<PageKind>) -> Vec<PageKind> {
         PageKind::Media,
         PageKind::Ai,
         PageKind::Health,
+        PageKind::Prayer,
+        PageKind::Kajian,
         PageKind::Shelf,
         PageKind::Focus,
-        PageKind::Prayer,
         PageKind::Tasks,
     ]
 }
@@ -288,6 +298,7 @@ pub fn content_height(p: PageKind, st: &AppState) -> f32 {
         PageKind::Record => record::height(st),
         PageKind::Oyenza => oyenza::height(st),
         PageKind::Prayer => prayer::height(st),
+        PageKind::Kajian => kajian::height(st),
         PageKind::Stocks => stocks::height(st),
         PageKind::Caffeine => caffeine::height(st),
         PageKind::Downloads => downloads::height(st),
@@ -432,6 +443,7 @@ pub(crate) fn draw_page(ui: &mut Ui, st: &mut AppState, area: Rect, page: PageKi
         PageKind::Record => record::draw(ui, st, area),
         PageKind::Oyenza => oyenza::draw(ui, st, area),
         PageKind::Prayer => prayer::draw(ui, st, area),
+        PageKind::Kajian => kajian::draw(ui, st, area),
         PageKind::Stocks => stocks::draw(ui, st, area),
         PageKind::Caffeine => caffeine::draw(ui, st, area),
         PageKind::Downloads => downloads::draw(ui, st, area),
