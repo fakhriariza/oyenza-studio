@@ -623,6 +623,8 @@ impl App {
         st.downloader_offered = true;
         st.now = clock::mono();
         st.local = clock::local_now();
+        // Warm up / sync fiqih lessons feed in background
+        let _ = crate::pages::kajian::lessons();
         st.unix = clock::unix_now();
         st.accent = theme_accent(st.settings.theme);
         let saved_settings = st.settings.clone();
