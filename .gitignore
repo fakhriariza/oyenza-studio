@@ -11,3 +11,5 @@
 /.pylib
 /.cache
 /tools/__pycache__
+/build
+

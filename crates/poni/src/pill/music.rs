@@ -383,8 +383,9 @@ fn draw_empty(ui: &mut Ui, area: Rect) {
         let btn_w = ui.pill_width("Connect Spotify (Web API)", false, true);
         let btn = Rect::new(tx, y0 + 60.0, btn_w, 28.0);
         if ui.pill(wid("music.spotify-connect"), btn, "Connect Spotify (Web API)", None, PillStyle::Primary(palette::GREEN)).clicked {
+            let script = crate::paths::script_path("ariza-spotify.py");
             let _ = std::process::Command::new("/usr/bin/python3")
-                .arg("/Users/dikshatek/Downloads/oyenza-studio/ariza-spotify.py")
+                .arg(script)
                 .arg("login")
                 .spawn();
         }
@@ -404,8 +405,9 @@ fn draw_empty(ui: &mut Ui, area: Rect) {
             }
             let b = Rect::new(px, y0 + 56.0, pw, 26.0);
             if ui.pill(wid_n("music.spotify-play", i as u64), b, &label, None, PillStyle::Primary(palette::GREEN)).clicked {
+                let script = crate::paths::script_path("ariza-spotify.py");
                 let _ = std::process::Command::new("/usr/bin/python3")
-                    .arg("/Users/dikshatek/Downloads/oyenza-studio/ariza-spotify.py")
+                    .arg(script)
                     .arg("play")
                     .arg(&p.uri)
                     .spawn();

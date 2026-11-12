@@ -127,3 +127,27 @@ pub fn apple_music_token_path() -> PathBuf {
 pub fn apple_music_web_token_path() -> PathBuf {
     cache_dir().join("apple-music-web.json")
 }
+
+/// Resolves a helper script or tool (checks app bundle Resources, ~/.local/bin, /usr/local/bin, or fallback).
+pub fn script_path(name: &str) -> PathBuf {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(contents) = exe.parent().and_then(|p| p.parent()) {
+            let res = contents.join("Resources").join(name);
+            if res.is_file() {
+                return res;
+            }
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        let p = PathBuf::from(home).join(".local/bin").join(name);
+        if p.is_file() {
+            return p;
+        }
+    }
+    let p = PathBuf::from("/usr/local/bin").join(name);
+    if p.is_file() {
+        return p;
+    }
+    PathBuf::from(name)
+}
+

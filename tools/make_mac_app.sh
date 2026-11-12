@@ -14,7 +14,7 @@ version="$(cargo metadata --no-deps --format-version 1 --manifest-path "$root/Ca
   | python3 -c 'import sys, json; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "poni"))')"
 
 mkdir -p "$out"
-app="$out/Oyenza Studio.app"
+app="$out/Ariza Studio.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
@@ -33,26 +33,31 @@ printf 'APPL????' > "$app/Contents/PkgInfo"
 if [ "$icns" != "-" ]; then
   # Named the way Info.plist asks for it, so a renamed build (ArizaStudio) still finds its icon.
   icon_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$app/Contents/Info.plist" 2>/dev/null || true)"
-  cp "$icns" "$app/Contents/Resources/${icon_name:-OyenzaStudio}.icns"
+  cp "$icns" "$app/Contents/Resources/${icon_name:-ArizaStudio}.icns"
 fi
 
-# What plays, from macOS's own now playing (browsers, Spotify, Music): the MediaRemote adapter's framework
-# and script (third_party/mediaremote-adapter), which /usr/bin/perl runs for the app
-# (crates/poni/src/mac/services/mediaremote.rs). MEDIAREMOTE_BUILD is its CMake build (mac.yml); without
-# it the app reads Music and Spotify only.
-if [ -n "${MEDIAREMOTE_BUILD:-}" ]; then
-  mkdir -p "$app/Contents/Frameworks"
+# MediaRemote adapter framework & scripts
+mkdir -p "$app/Contents/Frameworks"
+if [ -d "$root/Frameworks/MediaRemoteAdapter.framework" ]; then
+  cp -R "$root/Frameworks/MediaRemoteAdapter.framework" "$app/Contents/Frameworks/"
+elif [ -n "${MEDIAREMOTE_BUILD:-}" ]; then
   cp -R "$MEDIAREMOTE_BUILD/MediaRemoteAdapter.framework" "$app/Contents/Frameworks/"
-  cp "$root/third_party/mediaremote-adapter/bin/mediaremote-adapter.pl" "$app/Contents/Resources/"
-  lipo -info "$app/Contents/Frameworks/MediaRemoteAdapter.framework/MediaRemoteAdapter"
 fi
 
-# Ad-hoc signature: seals the bundle, the adapter's framework too (Apple Silicon refuses unsigned code outright).
+if [ -f "$root/third_party/mediaremote-adapter/bin/mediaremote-adapter.pl" ]; then
+  cp "$root/third_party/mediaremote-adapter/bin/mediaremote-adapter.pl" "$app/Contents/Resources/"
+fi
+
+# Copy Ariza helper scripts
+for helper in ariza-spotify.py ariza-notify ariza-news.py; do
+  if [ -f "$root/$helper" ]; then
+    cp "$root/$helper" "$app/Contents/Resources/"
+    chmod +x "$app/Contents/Resources/$helper"
+  fi
+done
+
+# Ad-hoc signature: seals the bundle, the adapter's framework too
 codesign --force --deep --sign - "$app"
 codesign --verify --deep --strict --verbose=2 "$app"
 
-# The DMG: the installer window, with the test build's note on Open Anyway.
-dmg="$out/Oyenza-Studio-$version-mac-unsigned.dmg"
-bash "$root/tools/make_mac_dmg.sh" "$app" "$dmg" test
-shasum -a 256 "$dmg"
-echo "built $dmg"
+echo "built $app"

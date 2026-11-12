@@ -50,8 +50,13 @@ impl Adapter {
             if b.as_ref().is_some_and(|p| p.join(NAME).is_file()) && s.as_ref().is_some_and(|p| p.is_file()) {
                 (b.unwrap(), s.unwrap())
             } else {
-                let root = PathBuf::from("/Users/dikshatek/Downloads/oyenza-studio");
-                (root.join("Frameworks").join(format!("{NAME}.framework")), root.join("third_party/mediaremote-adapter/bin").join(SCRIPT))
+                let cur = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                if cur.join("Frameworks").join(format!("{NAME}.framework")).is_dir() {
+                    (cur.join("Frameworks").join(format!("{NAME}.framework")), cur.join("third_party/mediaremote-adapter/bin").join(SCRIPT))
+                } else {
+                    let root = PathBuf::from("/Users/dikshatek/Downloads/oyenza-studio");
+                    (root.join("Frameworks").join(format!("{NAME}.framework")), root.join("third_party/mediaremote-adapter/bin").join(SCRIPT))
+                }
             }
         } else {
             return None;

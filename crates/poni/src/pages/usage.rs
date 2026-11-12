@@ -851,8 +851,9 @@ fn empty(ui: &mut Ui, _st: &mut AppState, r: Rect) {
     let refresh_w = ui.pill_width("Refresh Berita", false, true);
     let ref_b = Rect::new(r.right() - refresh_w, r.y + 4.0, refresh_w, PILL_SMALL);
     if ui.pill(wid("usage.news-refresh"), ref_b, "Refresh Berita", None, PillStyle::Utility).clicked {
+        let script = crate::paths::script_path("ariza-news.py");
         let _ = std::process::Command::new("/usr/bin/python3")
-            .arg("/Users/dikshatek/Downloads/oyenza-studio/ariza-news.py")
+            .arg(script)
             .spawn();
     }
 
@@ -866,8 +867,9 @@ fn empty(ui: &mut Ui, _st: &mut AppState, r: Rect) {
 
     if news_items.is_empty() {
         // Trigger background fetch if not yet fetched
+        let script = crate::paths::script_path("ariza-news.py");
         let _ = std::process::Command::new("/usr/bin/python3")
-            .arg("/Users/dikshatek/Downloads/oyenza-studio/ariza-news.py")
+            .arg(script)
             .spawn();
         ui.c.text("Mengambil headline berita terbaru...", Rect::new(r.x + 4.0, r.y + 60.0, r.w, 20.0), &sub_st);
         return;

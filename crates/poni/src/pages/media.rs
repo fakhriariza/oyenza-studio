@@ -329,8 +329,9 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
         let btn_w = ui.pill_width("Connect Spotify (Web API)", false, true);
         let btn = Rect::new(r.center().x - btn_w / 2.0, r.y + 82.0, btn_w, 26.0);
         if ui.pill(wid("media.spotify-connect"), btn, "Connect Spotify (Web API)", None, PillStyle::Primary(palette::GREEN)).clicked {
+            let script = crate::paths::script_path("ariza-spotify.py");
             let _ = std::process::Command::new("/usr/bin/python3")
-                .arg("/Users/dikshatek/Downloads/oyenza-studio/ariza-spotify.py")
+                .arg(script)
                 .arg("login")
                 .spawn();
         }
