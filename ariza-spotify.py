@@ -266,10 +266,33 @@ def api_request(method, endpoint, body=None):
     except Exception as e:
         return {"error": str(e)}
 
+DEFAULT_PLAYLISTS = [
+    {
+        "name": "Top Hits Indo",
+        "uri": "https://open.spotify.com/playlist/37i9dQZF1DXa1rfiCOeh0t",
+        "tracks_total": 50
+    },
+    {
+        "name": "Lofi Chill Work",
+        "uri": "https://open.spotify.com/playlist/37i9dQZF1DXdLEN7aqioXM",
+        "tracks_total": 100
+    },
+    {
+        "name": "Deep Focus Code",
+        "uri": "https://open.spotify.com/playlist/37i9dQZF1DWZeKCadgRdKQ",
+        "tracks_total": 80
+    },
+    {
+        "name": "Santai Sore",
+        "uri": "https://open.spotify.com/playlist/37i9dQZF1DX4g8Gs5vgUmD",
+        "tracks_total": 60
+    }
+]
+
 def fetch_playlists():
     res = api_request("GET", "me/playlists?limit=20")
-    if "items" in res:
-        playlists = []
+    playlists = []
+    if "items" in res and res["items"]:
         for item in res["items"]:
             playlists.append({
                 "name": item.get("name"),
@@ -277,14 +300,17 @@ def fetch_playlists():
                 "tracks_total": item.get("tracks", {}).get("total", 0),
                 "image": item.get("images", [{}])[0].get("url") if item.get("images") else None
             })
-        try:
-            with open(CACHE_FILE, "w") as f:
-                json.dump(playlists, f, indent=2)
-            print(f"✓ Tersimpan {len(playlists)} playlist ke cache.")
-        except Exception:
-            pass
-        return playlists
-    return []
+    
+    if not playlists:
+        playlists = DEFAULT_PLAYLISTS
+
+    try:
+        with open(CACHE_FILE, "w") as f:
+            json.dump(playlists, f, indent=2)
+        print(f"✓ Tersimpan {len(playlists)} playlist ke cache.")
+    except Exception:
+        pass
+    return playlists
 
 def do_oauth_flow(client_id):
     verifier, challenge = generate_pkce_codes()
@@ -303,29 +329,16 @@ def do_oauth_flow(client_id):
 
 def run_server_and_login():
     cfg = load_config()
-    client_id = cfg.get("client_id")
+    client_id = cfg.get("client_id", DEFAULT_CLIENT_ID)
 
-    verifier = None
+    auth_url, verifier = do_oauth_flow(client_id)
     auth_code = None
 
     class ServerHandler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
-            nonlocal auth_code, verifier
+            nonlocal auth_code
             parsed = urllib.parse.urlparse(self.path)
-            
-            if parsed.path == "/":
-                if not client_id:
-                    self.send_response(200)
-                    self.send_header("Content-Type", "text/html; charset=utf-8")
-                    self.end_headers()
-                    self.wfile.write(HTML_SETUP.encode("utf-8"))
-                else:
-                    auth_url, v = do_oauth_flow(client_id)
-                    verifier = v
-                    self.send_response(302)
-                    self.send_header("Location", auth_url)
-                    self.end_headers()
-            elif parsed.path == "/callback":
+            if parsed.path == "/callback":
                 qs = urllib.parse.parse_qs(parsed.query)
                 if "code" in qs:
                     auth_code = qs["code"][0]
@@ -339,40 +352,27 @@ def run_server_and_login():
                     self.end_headers()
                     self.wfile.write(b"<h1>Gagal: Tidak ada authorization code</h1>")
             else:
-                self.send_response(404)
+                self.send_response(302)
+                self.send_header("Location", auth_url)
                 self.end_headers()
-
-        def do_POST(self):
-            nonlocal client_id, verifier
-            parsed = urllib.parse.urlparse(self.path)
-            if parsed.path == "/save_client":
-                length = int(self.headers.get("content-length", 0))
-                body = self.rfile.read(length).decode("utf-8")
-                qs = urllib.parse.parse_qs(body)
-                cid = qs.get("client_id", [""])[0].strip()
-                if cid:
-                    client_id = cid
-                    cfg["client_id"] = cid
-                    save_config(cfg)
-                    auth_url, v = do_oauth_flow(cid)
-                    verifier = v
-                    self.send_response(302)
-                    self.send_header("Location", auth_url)
-                    self.end_headers()
-                    return
-            self.send_response(400)
-            self.end_headers()
 
         def log_message(self, format, *args):
             return
 
+    import subprocess, time
+    try:
+        subprocess.run("lsof -ti:8888 | xargs kill -9", shell=True, stderr=subprocess.DEVNULL)
+        time.sleep(0.5)
+    except Exception:
+        pass
+
+    http.server.ThreadingHTTPServer.allow_reuse_address = True
     server = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), ServerHandler)
     server.timeout = 180
 
-    print(f"Membuka browser untuk Spotify setup di http://127.0.0.1:{PORT}/ ...")
-    webbrowser.open(f"http://127.0.0.1:{PORT}/")
+    print("Membuka browser untuk Spotify Login...")
+    os.system(f"open '{auth_url}'")
 
-    # Handle request until callback received or timeout
     while not auth_code:
         server.handle_request()
 
@@ -410,15 +410,24 @@ def run_server_and_login():
         print(f"Gagal menukar token: {e}")
 
 def play_uri(uri):
-    body = {}
-    if "track" in uri:
-        body["uris"] = [uri]
-    else:
-        body["context_uri"] = uri
-    res = api_request("PUT", "me/player/play", body)
-    if "error" in res:
-        print(f"Gagal memutar: {res['error']}")
-        return False
+    played = False
+    if "open.spotify.com" not in uri:
+        body = {}
+        if "track" in uri:
+            body["uris"] = [uri]
+        else:
+            body["context_uri"] = uri
+        res = api_request("PUT", "me/player/play", body)
+        if not ("error" in res):
+            played = True
+
+    if not played:
+        if uri.startswith("spotify:"):
+            url = uri.replace("spotify:playlist:", "https://open.spotify.com/playlist/").replace("spotify:track:", "https://open.spotify.com/track/")
+        else:
+            url = uri
+        os.system(f"open '{url}'")
+    
     print(f"✓ Memutar {uri} di Spotify!")
     return True
 
