@@ -31,7 +31,9 @@ sed "s/@VERSION@/$version/g" "$root/installer/mac/Info.plist" > "$app/Contents/I
 plutil -lint "$app/Contents/Info.plist"
 printf 'APPL????' > "$app/Contents/PkgInfo"
 if [ "$icns" != "-" ]; then
-  cp "$icns" "$app/Contents/Resources/OyenzaStudio.icns"
+  # Named the way Info.plist asks for it, so a renamed build (ArizaStudio) still finds its icon.
+  icon_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$app/Contents/Info.plist" 2>/dev/null || true)"
+  cp "$icns" "$app/Contents/Resources/${icon_name:-OyenzaStudio}.icns"
 fi
 
 # What plays, from macOS's own now playing (browsers, Spotify, Music): the MediaRemote adapter's framework

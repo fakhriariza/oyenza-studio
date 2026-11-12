@@ -1,10 +1,11 @@
-"""Draw the Mac app icon's iconset from Oyenza Studio's logo (tools/make_brand.py draws the logo itself).
+"""Draw the Mac app icon's iconset from the brand's tile (tools/make_brand.py draws Oyenza's, and with
+--ariza tools/make_ariza_brand.py draws Ariza's).
 
 macOS icons sit on Apple's grid: the tile is 824 of the icon's 1024 px, centred, with clear space around it.
 Each size is drawn on its own (the logo leaves out the album cover and the bars below 32 px), never scaled
 from a bigger one.
 
-Run: python3 tools/make_mac_icon.py <out.iconset>   (needs Pillow), then on a Mac:
+Run: python3 tools/make_mac_icon.py <out.iconset> [--ariza]   (needs Pillow), then on a Mac:
      iconutil -c icns <out.iconset> -o OyenzaStudio.icns
 """
 import sys
@@ -31,25 +32,32 @@ ICONSET = [
 ]
 
 
-def icon(px: int) -> Image.Image:
+def icon(px: int, ariza: bool = False) -> Image.Image:
     # draw_logo leaves its own small margin (INSET) around the tile; size it so the tile is TILE of the icon.
     logo_px = round(px * TILE / (1 - 2 * make_brand.INSET))
-    logo = make_brand.draw_logo(logo_px, ss=4 if logo_px > 256 else 8)
+    if ariza:
+        import make_ariza_brand  # Ariza's tile: Oyenza's island, the "A" monogram where Oyen was
+        ss = 3 if logo_px > 256 else 8  # tile_at draws aliased on purpose; this is where it gets smoothed
+        logo = make_ariza_brand.tile_at(logo_px * ss).resize((logo_px, logo_px), Image.LANCZOS)
+    else:
+        logo = make_brand.draw_logo(logo_px, ss=4 if logo_px > 256 else 8)
     out = Image.new("RGBA", (px, px), (0, 0, 0, 0))
     out.paste(logo, ((px - logo_px) // 2, (px - logo_px) // 2), logo)
     return out
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    if len(args) != 1:
         print(__doc__)
         return 2
-    out = Path(sys.argv[1])
+    out = Path(args[0])
+    ariza = "--ariza" in sys.argv[2:]
     out.mkdir(parents=True, exist_ok=True)
     drawn: dict[int, Image.Image] = {}
     for name, px in ICONSET:
         if px not in drawn:
-            drawn[px] = icon(px)
+            drawn[px] = icon(px, ariza)
         drawn[px].save(out / name)
         print(f"{out / name}  {px}x{px}")
     return 0

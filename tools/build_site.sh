@@ -12,6 +12,9 @@ mkdir -p _site
 cp -r site/. _site/
 cp -r docs/brand _site/brand
 rm -f _site/brand/README.md
+# Ariza Studio's mark, for the page's own header and favicon (brand/ariza in the repo; only the svg ships).
+mkdir -p _site/brand/ariza
+cp brand/ariza/ariza-mark.svg _site/brand/ariza/
 # Creator links: a forwarding page per code. The list itself isn't published.
 python3 tools/creator_links.py site/creators.json _site
 rm -f _site/creators.json
