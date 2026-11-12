@@ -893,6 +893,7 @@ impl App {
                 self.refresh_time();
                 self.prayer_tick();
                 self.task_reminder_tick();
+                self.fasting_reminder_tick();
             }
             Timer::Smoke => self.smoke_step(),
             Timer::Update => self.update_due(),
@@ -2139,6 +2140,34 @@ impl App {
             Some(NoticeAction::OpenPage(PageKind::Tasks)),
         );
         pinfo!("tasks: reminded {n} uncompleted task(s)");
+    }
+
+    /// Alert notch ketika target puasa Intermittent Fasting tercapai.
+    fn fasting_reminder_tick(&mut self) {
+        let now_unix = self.st.unix;
+        let fast = self.st.store.fitness.fasting.clone();
+        if !fast.is_fasting {
+            return;
+        }
+        let target_secs = (fast.target_hours * 3600) as u64;
+        let elapsed = fast.elapsed_secs(now_unix);
+        let start = fast.fast_start_unix.unwrap_or(0);
+        let last_completed = fast.last_fast_completed.unwrap_or(0);
+        if elapsed >= target_secs && last_completed < start {
+            let target_h = fast.target_hours;
+            services::play(true);
+            self.st.notify(
+                Icon::Steps,
+                palette::GREEN,
+                format!("Target Puasa {} Jam Selesai! 🎉", target_h),
+                "Jendela makan kamu sekarang terbuka. Selamat makan sehat!",
+                25.0,
+                Some(NoticeAction::OpenPage(PageKind::Health)),
+            );
+            self.st.store.fitness.fasting.last_fast_completed = Some(now_unix);
+            self.st.save();
+            pinfo!("fasting: target {target_h}h completed notice shown");
+        }
     }
 
     /// A prayer's time came: the island says so and plays the chosen sound.

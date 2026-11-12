@@ -153,7 +153,7 @@ impl PageKind {
             PageKind::Media => "Music",
             PageKind::Focus => "Focus",
             PageKind::Ai => "AI",
-            PageKind::Health => "Health",
+            PageKind::Health => "Fitness",
             PageKind::Ielts => "IELTS",
             PageKind::Notes => "Notes",
             PageKind::Shelf => "Shelf",
@@ -217,9 +217,10 @@ impl PageKind {
     /// Notifications, which goes off with its tab (it's offered only where
     /// the copy can read notifications). Oyenza stays; the add-ons' pages come
     /// and go with their switches, AI's with Studio Pro.
-    pub const HIDEABLE: [PageKind; 6] = [
+    pub const HIDEABLE: [PageKind; 7] = [
         PageKind::Media,
         PageKind::Ai,
+        PageKind::Health,
         PageKind::Shelf,
         PageKind::Focus,
         PageKind::Prayer,
@@ -252,6 +253,7 @@ fn row(_st: &AppState, _open: Option<PageKind>) -> Vec<PageKind> {
     vec![
         PageKind::Media,
         PageKind::Ai,
+        PageKind::Health,
         PageKind::Shelf,
         PageKind::Focus,
         PageKind::Prayer,

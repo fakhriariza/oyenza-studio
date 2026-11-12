@@ -1,298 +1,21 @@
-//! Health page, the Health add-on's (off until switched on): today's steps
-//! against the goal, the week as bars, and where the numbers came from.
-//!
-//! The numbers come from the person's phone: Oyenza reads daily totals from
-//! Apple Health or Health Connect and, with Show on Oyenza Studio turned on
-//! there, a signed-in Oyenza Studio receives them (`AppState::health`, in
-//! memory only). Without numbers the page says how to get them; numbers more
-//! than two hours old stay, with a line asking to open Oyenza on the phone.
-//! Nothing here animates; the page only redraws when new numbers arrive (each
-//! check, every 15 minutes, brings them again, so that line comes on time).
+//! Fitness, Intermittent Fasting, Weight Tracker & Food Calorie Estimator page for Ariza Studio.
 
-use crate::commands::{Command, OyenzaCmd};
-use crate::gfx::{ts, TextStyle, Weight};
+use crate::gfx::{TextStyle, Weight};
 use crate::icons::Icon;
 use crate::pages::PageKind;
-use crate::state::{AppState, Notice, NoticeAction, OyenzaLink};
-use crate::ui::{wid, PillStyle, Ui, PILL_SMALL};
+use crate::state::{AppState, Notice, NoticeAction};
+use crate::ui::{wid, wid_n, PillStyle, Ui, PILL_SMALL};
 use poni_core::datetime::{fmt_clock, fmt_date_short, LocalDateTime};
-use poni_core::geom::{palette, Color, Point, Rect};
-use poni_core::health::{fmt_distance, fmt_steps, is_stale, HealthSnapshot};
+use poni_core::fitness::{estimate_food, FoodEntry, WeightEntry};
+use poni_core::geom::{palette, Color, Rect};
+use poni_core::health::fmt_steps;
 
-const HEIGHT: f32 = 144.0;
-/// The ring on the left, and the gap to the middle column.
-const RING_R: f32 = 46.0;
-const RING_W: f32 = 10.0;
-const RING_BOX: f32 = 2.0 * RING_R + RING_W;
-const MID_GAP: f32 = 24.0;
-/// Before sign-in the explanation spans the middle and right columns, up to this width.
-const SIGNED_OUT_W: f32 = 400.0;
-/// The goal line sits at this fraction of the chart height (room for over-goal days).
-const GOAL_AT: f32 = 0.72;
-const WEEKDAY_LETTER: [&str; 7] = ["S", "M", "T", "W", "T", "F", "S"];
-
-/// Steps are green, the colour people know from activity rings.
-const STEPS: Color = palette::GREEN;
+pub const HEIGHT: f32 = 216.0;
 
 pub fn height(_st: &AppState) -> f32 {
     HEIGHT
 }
 
-pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
-    let right_w = (area.w - 340.0).clamp(110.0, 250.0);
-    let right_x = area.right() - right_w;
-    let mid_x = area.x + RING_BOX + MID_GAP;
-    let mid = Rect::new(mid_x, area.y, (right_x - 24.0 - mid_x).max(0.0), area.h);
-    let ring_c = Point::new(area.x + RING_BOX / 2.0, area.y + 11.0 + RING_BOX / 2.0);
-    let chart = Rect::new(right_x, area.y + 34.0, right_w, 76.0);
-
-    let Some(h) = st.health.clone() else {
-        // No week to chart yet: the explanation takes the middle and right columns.
-        draw_ring(ui, ring_c, None);
-        let w = (area.right() - mid_x).clamp(0.0, SIGNED_OUT_W);
-        draw_not_connected(ui, st, Rect::new(mid_x, area.y, w, area.h), ring_c.y);
-        return;
-    };
-    let today = st.local.day_key();
-    let steps = h.steps_on(&today);
-    let goal = h.goal();
-    draw_ring(ui, ring_c, Some(steps as f32 / goal as f32));
-    draw_today(ui, st, &h, steps, goal, mid, area.right());
-    draw_week_title(ui, st, &h, Rect::new(right_x, area.y + 4.0, right_w, 18.0));
-    draw_chart(ui, st, &h, chart);
-}
-
-// ------------------------------------------------------------ ring
-
-/// The day's ring with the steps glyph in the middle. `None` = no numbers yet.
-fn draw_ring(ui: &mut Ui, c: Point, progress: Option<f32>) {
-    let p = progress.unwrap_or(0.0);
-    ui.c.ring(c, RING_R, RING_W, p.min(1.0), palette::TRACK, STEPS);
-    if p > 1.0 {
-        // Past the goal the ring starts a second, brighter lap.
-        ui.c.arc(c, RING_R, 0.0, (p - 1.0).min(1.0), Color::lerp(STEPS, Color::white(1.0), 0.35), RING_W);
-    }
-    let glyph = if progress.is_some() { STEPS } else { palette::TEXT_FAINT };
-    let icon_y = if progress.is_some() { c.y - 14.0 } else { c.y };
-    ui.c.icon(Icon::Steps, Rect::from_center(Point::new(c.x, icon_y), 22.0, 22.0), glyph);
-    if let Some(p) = progress {
-        let pct = format!("{}%", (p * 100.0).round() as u32);
-        let st = TextStyle::body().weight(Weight::Semibold).tabular().center();
-        ui.c.text(&pct, Rect::new(c.x - RING_R, c.y + 2.0, 2.0 * RING_R, 18.0), &st);
-    }
-}
-
-// ------------------------------------------------------------ middle column
-
-/// The middle column; `right` is the page's right edge, which the bottom line
-/// may run to (below the chart's weekday letters).
-fn draw_today(ui: &mut Ui, st: &AppState, h: &HealthSnapshot, steps: u32, goal: u32, r: Rect, right: f32) {
-    // "6,420  / 8,000 steps", sharing a baseline like the other pages' amounts.
-    let big = fmt_steps(steps);
-    let big_st = TextStyle::display().tabular().top();
-    let small_st = TextStyle::new(ts::HEADLINE).color(palette::TEXT_DIM).top();
-    let y = r.y + 8.0;
-    let (bw, bh) = ui.c.measure(&big, &big_st, r.w);
-    let (_, sh) = ui.c.measure("steps", &small_st, r.w);
-    ui.c.text(&big, Rect::new(r.x, y, bw + 2.0, bh), &big_st);
-    let sy = y + (bh - sh) * 0.81;
-    let goal_text = format!("/ {} steps", fmt_steps(goal));
-    ui.c.text(&goal_text, Rect::new(r.x + bw + 6.0, sy, (r.w - bw - 6.0).max(0.0), sh), &small_st);
-
-    let strong = TextStyle::footnote().weight(Weight::Semibold);
-    let dim = TextStyle::footnote().color(palette::TEXT_DIM);
-    let line = Rect::new(r.x, y + 42.0, r.w, 18.0);
-    if steps >= goal {
-        let ir = Rect::new(line.x, line.center().y - 6.5, 13.0, 13.0);
-        ui.c.icon(Icon::Check, ir, STEPS);
-        text_run(ui, line.x + 18.0, line, "Goal reached", &strong.color(STEPS));
-    } else {
-        let x = text_run(ui, line.x, line, &fmt_steps(goal - steps), &strong);
-        text_run(ui, x, line, " to go", &dim);
-    }
-
-    // Distance and active energy, when the phone has them.
-    let today = h.day(&st.local.day_key());
-    let mut extra = Vec::new();
-    if let Some(m) = today.and_then(|d| d.distance_m) {
-        extra.push(fmt_distance(m));
-    }
-    if let Some(k) = today.and_then(|d| d.active_kcal) {
-        extra.push(format!("{} kcal", fmt_steps(k)));
-    }
-    if !extra.is_empty() {
-        ui.c.text(&extra.join(" · "), Rect::new(r.x, y + 64.0, r.w, 18.0), &dim);
-    }
-
-    let faint = TextStyle::caption().color(palette::TEXT_FAINT);
-    if is_stale(h.updated_at, st.unix) {
-        // Not updated for two hours (`STALE_AFTER_S`): opening Oyenza on the phone sends the newest.
-        ui.c.text(&updated_text(st, h.updated_at), Rect::new(r.x, y + 92.0, r.w, 15.0), &faint);
-        let hint = TextStyle::caption().color(palette::TEXT_DIM);
-        ui.c.text("Open Oyenza on your phone to update", Rect::new(r.x, y + 107.0, (right - r.x).max(r.w), 15.0), &hint);
-    } else {
-        ui.c.text(&format!("From {} via Oyenza", h.source.name()), Rect::new(r.x, y + 92.0, r.w, 15.0), &faint);
-        ui.c.text(&updated_text(st, h.updated_at), Rect::new(r.x, y + 107.0, r.w, 15.0), &faint);
-    }
-}
-
-/// "Updated 08:12" today, "Updated yesterday", or "Updated 21 Oct" (the Today page's day too).
-pub(crate) fn updated_text(st: &AppState, at: i64) -> String {
-    let local = st.local;
-    let since_midnight = local.hour as i64 * 3600 + local.minute as i64 * 60 + local.second as i64;
-    let ago = (st.unix - at).max(0);
-    if ago <= since_midnight {
-        let secs = since_midnight - ago;
-        let t = LocalDateTime { hour: (secs / 3600) as u8, minute: ((secs / 60) % 60) as u8, second: 0, ..local };
-        return format!("Updated {}", fmt_clock(&t, st.settings.use_24h));
-    }
-    let days = (ago - since_midnight - 1) / 86_400 + 1;
-    if days == 1 {
-        "Updated yesterday".to_string()
-    } else {
-        format!("Updated {}", fmt_date_short(&local.add_days(-days)))
-    }
-}
-
-/// Title, explanation and a button (or the "Off in Oyenza" tag), stacked and
-/// centred on `center_y` (the ring's centre). Heights are measured, so a wider
-/// font wraps instead of clipping. Signed out, the button signs in to Oyenza
-/// right here (while a code waits, it shows the code). Signed in already
-/// (`services::oyenza`) with no steps, the switch is off on the phone (or its
-/// Oyenza can't send them yet): the text says where to turn it on.
-fn draw_not_connected(ui: &mut Ui, st: &mut AppState, r: Rect, center_y: f32) {
-    let signed_in = matches!(st.oyenza.link, OyenzaLink::Connected { .. });
-    let title = "Your steps, from your phone";
-    let body = if signed_in {
-        "Open Oyenza on your iPhone or Android and, under your steps in Health (Sehat), turn on Show on Oyenza Studio. Your daily steps then show here."
-    } else {
-        "Oyenza on your iPhone or Android reads them from Apple Health or Health Connect. Sign in to Oyenza to see them here."
-    };
-    let title_st = TextStyle::headline().wrap().top();
-    let body_st = TextStyle::footnote().color(palette::TEXT_DIM).wrap().top();
-    let (_, title_h) = ui.c.measure(title, &title_st, r.w);
-    let (_, body_h) = ui.c.measure(body, &body_st, r.w);
-    let (gap, tag_gap) = (6.0, 12.0);
-    let tag_h = if signed_in { 24.0 } else { PILL_SMALL };
-    let total = title_h + gap + body_h + tag_gap + tag_h;
-    let y = (center_y - total / 2.0).clamp(r.y, (r.bottom() - total).max(r.y));
-    ui.c.text(title, Rect::new(r.x, y, r.w, title_h + 1.0), &title_st);
-    let body_y = y + title_h + gap;
-    ui.c.text(body, Rect::new(r.x, body_y, r.w, body_h + 1.0), &body_st);
-    let tag_y = body_y + body_h + tag_gap;
-    match st.oyenza.link {
-        OyenzaLink::Off => {
-            let label = "Sign in with Oyenza";
-            let w = ui.pill_width(label, false, true).min(r.w);
-            if ui.pill(wid("health.sign-in"), Rect::new(r.x, tag_y, w, PILL_SMALL), label, None, PillStyle::Primary(palette::ORANGE)).clicked {
-                st.cmd(Command::Oyenza(OyenzaCmd::SignIn));
-            }
-        }
-        OyenzaLink::Connecting { .. } => {
-            let label = "Show the sign-in code";
-            let w = ui.pill_width(label, false, true).min(r.w);
-            if ui.pill(wid("health.show-code"), Rect::new(r.x, tag_y, w, PILL_SMALL), label, None, PillStyle::Primary(palette::ORANGE)).clicked {
-                st.cmd(Command::SetPage(PageKind::Oyenza));
-            }
-        }
-        // Not a button: the switch is on the phone.
-        OyenzaLink::Connected { .. } => {
-            let label = "Off in Oyenza";
-            let tag_st = TextStyle::caption().weight(Weight::Semibold).color(palette::TEXT_DIM);
-            let (tw, _) = ui.c.measure(label, &tag_st, r.w);
-            let tag = Rect::new(r.x, tag_y, (tw.ceil() + 20.0).min(r.w), tag_h);
-            ui.c.fill_rrect(tag, tag.h / 2.0, palette::SURFACE);
-            ui.c.text(label, tag.inset(10.0, 0.0), &tag_st.center());
-        }
-    }
-}
-
-/// Draw `s` at `x` inside `line`; returns the x after it.
-fn text_run(ui: &mut Ui, x: f32, line: Rect, s: &str, st: &TextStyle) -> f32 {
-    let avail = (line.right() - x).max(0.0);
-    if avail <= 0.0 {
-        return x;
-    }
-    let w = ui.c.measure(s, st, avail).0.min(avail);
-    ui.c.text(s, Rect::new(x, line.y, w + 1.0, line.h), st);
-    x + w
-}
-
-// ------------------------------------------------------------ week
-
-fn draw_week_title(ui: &mut Ui, st: &AppState, h: &HealthSnapshot, r: Rect) {
-    let total: u32 = h.week(&st.local).iter().filter_map(|(_, s)| *s).sum();
-    let label = TextStyle::caption().color(palette::TEXT_FAINT);
-    ui.c.text("This week", r, &label);
-    ui.c.text(&fmt_steps(total), r, &TextStyle::caption().weight(Weight::Semibold).tabular().right());
-}
-
-/// Seven bars ending today, with the goal as a dashed line.
-fn draw_chart(ui: &mut Ui, st: &AppState, h: &HealthSnapshot, r: Rect) {
-    let label_w = 30.0;
-    let bars = Rect::new(r.x + 2.0, r.y, (r.w - label_w - 2.0).max(0.0), r.h - 18.0);
-    let goal_y = bars.bottom() - bars.h * GOAL_AT;
-
-    let (dash, gap) = (2.5f32, 4.5f32);
-    let mut x = bars.x;
-    while x < bars.right() {
-        let x2 = (x + dash).min(bars.right());
-        ui.c.line(Point::new(x, goal_y), Point::new(x2, goal_y), Color::white(0.22), 1.0);
-        x += dash + gap;
-    }
-    ui.c.text(&fmt_short(h.goal()), Rect::new(bars.right() + 5.0, goal_y - 7.0, label_w - 5.0, 14.0), &TextStyle::caption().color(palette::TEXT_FAINT));
-
-    let week = h.week(&st.local).map(|(d, s)| (d, s.unwrap_or(0)));
-    let goal = h.goal() as f32;
-    let cols = bars.columns(week.len(), 0.0);
-    let bar_w = cols.first().map(|c| (c.w * 0.4).clamp(6.0, 12.0)).unwrap_or(10.0);
-    for (i, ((day, steps), col)) in week.iter().zip(cols.iter()).enumerate() {
-        let today = i + 1 == week.len();
-        let frac = (*steps as f32 / goal * GOAL_AT).clamp(0.0, 1.0);
-        let bh = if *steps > 0 { (frac * bars.h).max(bar_w) } else { bar_w };
-        let br = Rect::new(col.center().x - bar_w / 2.0, bars.bottom() - bh, bar_w, bh);
-        let hovered = ui.hovered(Rect::new(col.x, r.y - 14.0, col.w, r.h + 14.0));
-        let base = if *steps == 0 {
-            palette::TRACK
-        } else if today {
-            STEPS
-        } else if *steps as f32 >= goal {
-            STEPS.mul_alpha(0.5)
-        } else {
-            Color::white(0.26)
-        };
-        let c = if hovered && !today { base.with_alpha((base.a * 1.6).min(1.0)) } else { base };
-        ui.c.fill_rrect(br, bar_w / 2.0, c);
-
-        let letter_st = if today {
-            TextStyle::caption().weight(Weight::Semibold).color(STEPS).center()
-        } else {
-            TextStyle::caption().color(if hovered { palette::TEXT_DIM } else { palette::TEXT_FAINT }).center()
-        };
-        let wd = day.weekday() as usize % 7;
-        ui.c.text(WEEKDAY_LETTER[wd], Rect::new(col.x, bars.bottom() + 4.0, col.w, 14.0), &letter_st);
-
-        if hovered {
-            let text = if *steps == 0 { "—".to_string() } else { fmt_steps(*steps) };
-            let tr = Rect::new(col.center().x - 32.0, (br.y - 16.0).max(r.y - 14.0), 64.0, 14.0);
-            ui.c.text(&text, tr, &TextStyle::caption().weight(Weight::Semibold).tabular().center());
-        }
-    }
-}
-
-/// "8k", "7.5k", "950" for the goal label.
-fn fmt_short(n: u32) -> String {
-    if n < 1000 {
-        n.to_string()
-    } else if n % 1000 == 0 {
-        format!("{}k", n / 1000)
-    } else {
-        format!("{:.1}k", n as f32 / 1000.0)
-    }
-}
-
-/// The island's notice for the moment new numbers from the phone put today
-/// over the step goal (see `poni_core::health::goal_reached`).
 pub fn goal_notice(steps: u32, until: f64) -> Notice {
     Notice {
         icon: Icon::Steps,
@@ -304,5 +27,369 @@ pub fn goal_notice(steps: u32, until: f64) -> Notice {
         action: Some(NoticeAction::OpenPage(PageKind::Health)),
         inline: None,
         reveal: None,
+    }
+}
+
+pub(crate) fn updated_text(st: &AppState, at: i64) -> String {
+    let local = st.local;
+    let since_midnight = local.hour as i64 * 3600 + local.minute as i64 * 60 + local.second as i64;
+    let ago = (st.unix - at).max(0);
+    if ago <= since_midnight {
+        let secs = since_midnight - ago;
+        let t = LocalDateTime { hour: (secs / 3600) as u8, minute: ((secs / 60) % 60) as u8, second: 0, ..local };
+        return format!("Updated {}", fmt_clock(&t, st.settings.use_24h));
+    }
+    let days = (ago - since_midnight - 1) / 86_400 + 1;
+    if days == 1 {
+        return "Updated yesterday".into();
+    }
+    format!("Updated {}", fmt_date_short(&local.add_days(-days)))
+}
+
+pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
+    let accent = st.accent;
+    let tab = st.store.fitness.active_tab;
+
+    // 1. Sub-navigation tabs at the top
+    let tab_w = 110.0;
+    let tab_gap = 8.0;
+    let nav_y = area.y + 4.0;
+
+    let tabs = [
+        ("⏱️ Fasting", 0),
+        ("⚖️ Berat Badan", 1),
+        ("🥗 Kalori & Makanan", 2),
+    ];
+
+    let mut tx = area.x + 4.0;
+    for (label, idx) in tabs {
+        let style = if tab == idx {
+            PillStyle::Primary(accent)
+        } else {
+            PillStyle::Utility
+        };
+        let b = Rect::new(tx, nav_y, tab_w, PILL_SMALL);
+        if ui.pill(wid_n("fitness.nav", idx as u64), b, label, None, style).clicked {
+            st.store.fitness.active_tab = idx;
+            st.save();
+        }
+        tx += tab_w + tab_gap;
+    }
+
+    let content_y = nav_y + PILL_SMALL + 10.0;
+    let content_rect = Rect::new(area.x + 4.0, content_y, area.w - 8.0, area.bottom() - content_y);
+
+    match tab {
+        0 => draw_fasting(ui, st, content_rect, accent),
+        1 => draw_weight(ui, st, content_rect, accent),
+        _ => draw_food_calories(ui, st, content_rect, accent),
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// 1. INTERMITTENT FASTING (IF)
+// -------------------------------------------------------------------------------------------------
+fn draw_fasting(ui: &mut Ui, st: &mut AppState, r: Rect, accent: Color) {
+    let now = st.unix;
+    let fast = st.store.fitness.fasting.clone();
+    let is_fasting = fast.is_fasting;
+    let target_hours = fast.target_hours.max(1);
+
+    // Protocol selector pills on top right
+    let protocols = [("16:8", 16), ("18:6", 18), ("20:4", 20), ("24h", 24)];
+    let proto_w = 50.0;
+    let mut px = r.right() - (proto_w * 4.0 + 18.0);
+    for (name, h) in protocols {
+        let style = if target_hours == h {
+            PillStyle::Primary(palette::ORANGE)
+        } else {
+            PillStyle::Utility
+        };
+        let b = Rect::new(px, r.y + 2.0, proto_w, 22.0);
+        if ui.pill(wid_n("fasting.proto", h as u64), b, name, None, style).clicked {
+            st.store.fitness.fasting.target_hours = h;
+            st.save();
+        }
+        px += proto_w + 6.0;
+    }
+
+    if is_fasting {
+        let elapsed = fast.elapsed_secs(now);
+        let hours = elapsed / 3600;
+        let mins = (elapsed % 3600) / 60;
+        let secs = elapsed % 60;
+        let progress = fast.progress(now);
+        let pct = (progress * 100.0).round() as u32;
+
+        let (stage_title, stage_desc) = fast.stage(now);
+
+        // Big elapsed timer
+        let timer_str = format!("{:02}j {:02}m {:02}s", hours, mins, secs);
+        let header = TextStyle::headline().weight(Weight::Bold).color(palette::GREEN);
+        ui.c.text(&timer_str, Rect::new(r.x, r.y, 220.0, 24.0), &header);
+
+        let sub_info = format!("Target: {} jam puasa · {}% tercapai", target_hours, pct);
+        ui.c.text(&sub_info, Rect::new(r.x, r.y + 26.0, 260.0, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+
+        // Fasting stage badge
+        let stage_box = Rect::new(r.x, r.y + 48.0, r.w, 48.0);
+        ui.c.fill_rrect(stage_box, 8.0, Color::white(0.06));
+        ui.c.text(stage_title, Rect::new(stage_box.x + 12.0, stage_box.y + 6.0, stage_box.w - 24.0, 18.0), &TextStyle::body().weight(Weight::Bold).color(palette::ORANGE));
+        ui.c.text(stage_desc, Rect::new(stage_box.x + 12.0, stage_box.y + 26.0, stage_box.w - 24.0, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+
+        // Action button: Stop Fast
+        let btn_w = 260.0;
+        let btn_r = Rect::new(r.x, r.y + 106.0, btn_w, 32.0);
+        if ui.pill(wid("fasting.toggle"), btn_r, "Selesai Puasa (Buka Jendela Makan)", Some(Icon::Check), PillStyle::Primary(palette::RED)).clicked {
+            st.store.fitness.fasting.stop(now);
+            st.save();
+        }
+    } else {
+        // Eating window open
+        let header = TextStyle::headline().weight(Weight::Bold).color(palette::ORANGE);
+        ui.c.text("Jendela Makan Terbuka 🍽️", Rect::new(r.x, r.y, 260.0, 24.0), &header);
+        ui.c.text("Silakan makan sehat sesuai kebutuhan nutrisi harian kamu.", Rect::new(r.x, r.y + 26.0, r.w, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+
+        let card = Rect::new(r.x, r.y + 48.0, r.w, 48.0);
+        ui.c.fill_rrect(card, 8.0, Color::white(0.06));
+        ui.c.text("Target Puasa Berikutnya:", Rect::new(card.x + 12.0, card.y + 6.0, 200.0, 18.0), &TextStyle::body().weight(Weight::Bold));
+        let p_desc = format!("Protokol {} jam puasa (Fasting window). Mulai saat selesai makan terakhir.", target_hours);
+        ui.c.text(&p_desc, Rect::new(card.x + 12.0, card.y + 26.0, card.w - 24.0, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+
+        // Action button: Start Fast
+        let btn_w = 240.0;
+        let btn_r = Rect::new(r.x, r.y + 106.0, btn_w, 32.0);
+        if ui.pill(wid("fasting.toggle"), btn_r, "Mulai Puasa Sekarang (Start Fast)", Some(Icon::Play), PillStyle::Primary(accent)).clicked {
+            st.store.fitness.fasting.start(now);
+            st.save();
+        }
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// 2. WEIGHT TRACKER & PROGRESS
+// -------------------------------------------------------------------------------------------------
+fn draw_weight(ui: &mut Ui, st: &mut AppState, r: Rect, accent: Color) {
+    let fitness = &st.store.fitness;
+    let current_weight = fitness.weight_logs.last().map(|w| w.weight_kg).unwrap_or(75.0);
+    let target_weight = fitness.target_weight.unwrap_or(68.0);
+    let initial_weight = fitness.initial_weight.unwrap_or(current_weight);
+
+    // Stats bar: Current | Target | Progress
+    let card_w = (r.w - 16.0) / 3.0;
+    let card_h = 48.0;
+
+    // Card 1: Current Weight
+    let c1 = Rect::new(r.x, r.y, card_w, card_h);
+    ui.c.fill_rrect(c1, 8.0, Color::white(0.06));
+    ui.c.text("Saat Ini", Rect::new(c1.x + 8.0, c1.y + 4.0, c1.w, 14.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+    ui.c.text(&format!("{:.1} kg", current_weight), Rect::new(c1.x + 8.0, c1.y + 20.0, c1.w, 22.0), &TextStyle::headline().weight(Weight::Bold).color(accent));
+
+    // Card 2: Target Weight
+    let c2 = Rect::new(c1.right() + 8.0, r.y, card_w, card_h);
+    ui.c.fill_rrect(c2, 8.0, Color::white(0.06));
+    ui.c.text("Target", Rect::new(c2.x + 8.0, c2.y + 4.0, c2.w, 14.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+    ui.c.text(&format!("{:.1} kg", target_weight), Rect::new(c2.x + 8.0, c2.y + 20.0, c2.w, 22.0), &TextStyle::headline().weight(Weight::Bold));
+
+    // Card 3: Total Diff
+    let diff = current_weight - initial_weight;
+    let c3 = Rect::new(c2.right() + 8.0, r.y, card_w, card_h);
+    ui.c.fill_rrect(c3, 8.0, Color::white(0.06));
+    ui.c.text("Perubahan", Rect::new(c3.x + 8.0, c3.y + 4.0, c3.w, 14.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+    let (diff_str, diff_col) = if diff <= 0.0 {
+        (format!("{:.1} kg", diff), palette::GREEN)
+    } else {
+        (format!("+{:.1} kg", diff), palette::RED)
+    };
+    ui.c.text(&diff_str, Rect::new(c3.x + 8.0, c3.y + 20.0, c3.w, 22.0), &TextStyle::headline().weight(Weight::Bold).color(diff_col));
+
+    // Quick log today's weight row
+    let input_y = c1.bottom() + 10.0;
+    ui.c.text("Catat Timbangan Hari Ini:", Rect::new(r.x, input_y, 200.0, 18.0), &TextStyle::body().weight(Weight::Bold));
+
+    // Initial draft if not initialized
+    if st.ui.fitness_weight_input < 30.0 {
+        st.ui.fitness_weight_input = current_weight;
+    }
+
+    let mut bx = r.x;
+    let step_btns = [("-0.5", -0.5f32), ("-0.1", -0.1f32), ("+0.1", 0.1f32), ("+0.5", 0.5f32)];
+    for (label, val) in step_btns {
+        let btn_r = Rect::new(bx, input_y + 22.0, 48.0, 26.0);
+        if ui.pill(wid_n("weight.step", (val * 10.0) as i64 as u64), btn_r, label, None, PillStyle::Utility).clicked {
+            st.ui.fitness_weight_input = (st.ui.fitness_weight_input + val).clamp(30.0, 250.0);
+        }
+        bx += 54.0;
+    }
+
+    // Weight display pill
+    let val_box = Rect::new(bx + 4.0, input_y + 22.0, 80.0, 26.0);
+    ui.c.fill_rrect(val_box, 6.0, Color::white(0.12));
+    ui.c.text(&format!("{:.1} kg", st.ui.fitness_weight_input), Rect::new(val_box.x, val_box.y + 3.0, val_box.w, 20.0), &TextStyle::body().weight(Weight::Bold).color(accent));
+
+    // Save button
+    let save_r = Rect::new(val_box.right() + 10.0, input_y + 22.0, 110.0, 26.0);
+    if ui.pill(wid("weight.save"), save_r, "Simpan Log", Some(Icon::Check), PillStyle::Primary(palette::GREEN)).clicked {
+        let today = st.local.day_key();
+        let new_w = st.ui.fitness_weight_input;
+        if st.store.fitness.initial_weight.is_none() {
+            st.store.fitness.initial_weight = Some(new_w);
+        }
+        st.store.fitness.weight_logs.push(WeightEntry {
+            timestamp: st.unix,
+            date: today,
+            weight_kg: new_w,
+            note: None,
+        });
+        st.save();
+    }
+
+    // Target adjustment pills
+    let tgt_y = input_y + 56.0;
+    ui.c.text("Atur Target Berat:", Rect::new(r.x, tgt_y, 140.0, 18.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+    if ui.pill(wid("weight.tgt.minus"), Rect::new(r.x + 140.0, tgt_y - 2.0, 50.0, 22.0), "-1 kg", None, PillStyle::Utility).clicked {
+        st.store.fitness.target_weight = Some((target_weight - 1.0).max(30.0));
+        st.save();
+    }
+    if ui.pill(wid("weight.tgt.plus"), Rect::new(r.x + 196.0, tgt_y - 2.0, 50.0, 22.0), "+1 kg", None, PillStyle::Utility).clicked {
+        st.store.fitness.target_weight = Some((target_weight + 1.0).min(200.0));
+        st.save();
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// 3. FOOD INPUT & CALORIE ESTIMATOR
+// -------------------------------------------------------------------------------------------------
+fn draw_food_calories(ui: &mut Ui, st: &mut AppState, r: Rect, accent: Color) {
+    let today = st.local.day_key();
+    let target_cal = st.store.fitness.daily_calorie_target.max(1000);
+
+    let (total_cal, total_prot, total_carb, total_fat, food_count) = {
+        let foods = st.store.fitness.food_logs.get(&today);
+        let cal = foods.map(|list| list.iter().map(|f| f.calories).sum()).unwrap_or(0);
+        let prot = foods.map(|list| list.iter().map(|f| f.protein_g).sum()).unwrap_or(0.0);
+        let carb = foods.map(|list| list.iter().map(|f| f.carbs_g).sum()).unwrap_or(0.0);
+        let fat = foods.map(|list| list.iter().map(|f| f.fat_g).sum()).unwrap_or(0.0);
+        let count = foods.map(|list| list.len()).unwrap_or(0);
+        (cal, prot, carb, fat, count)
+    };
+
+    // 1. Calorie summary banner
+    let cal_str = format!("Hari Ini: {} / {} kkal", total_cal, target_cal);
+    let rem_cal = target_cal.saturating_sub(total_cal);
+    let rem_str = if total_cal <= target_cal {
+        format!("(Sisa {} kkal)", rem_cal)
+    } else {
+        format!("(Kelebihan {} kkal)", total_cal - target_cal)
+    };
+
+    ui.c.text(&cal_str, Rect::new(r.x, r.y, 200.0, 18.0), &TextStyle::body().weight(Weight::Bold).color(palette::GREEN));
+    ui.c.text(&rem_str, Rect::new(r.x + 204.0, r.y + 2.0, 160.0, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+
+    // Macros row
+    let macro_str = format!("Protein: {:.0}g  ·  Karbo: {:.0}g  ·  Lemak: {:.0}g", total_prot, total_carb, total_fat);
+    ui.c.text(&macro_str, Rect::new(r.x, r.y + 20.0, r.w, 16.0), &TextStyle::footnote().color(accent));
+
+    // 2. Text input row for food estimation
+    let input_y = r.y + 40.0;
+    let input_r = Rect::new(r.x, input_y, r.w - 74.0, 28.0);
+    let placeholder = "Ketik makanan (cth: nasi padang, 2 telur rebus, ayam geprek, kopi susu)...";
+
+    let resp = ui.text_input_row(
+        wid("fitness.food_input"),
+        input_r,
+        &mut st.ui.fitness_food_input,
+        placeholder,
+        64,
+        accent,
+        Some(Icon::Plus),
+    );
+
+    let add_btn_r = Rect::new(input_r.right() + 6.0, input_y, 68.0, 28.0);
+    let add_clicked = ui.pill(wid("fitness.food_add"), add_btn_r, "+ Log", None, PillStyle::Primary(palette::GREEN)).clicked;
+
+    if resp.submitted || add_clicked {
+        let text = st.ui.fitness_food_input.trim();
+        if !text.is_empty() {
+            let (cal, prot, carb, fat) = estimate_food(text);
+            let time_str = format!("{:02}:{:02}", (st.unix / 3600) % 24, (st.unix / 60) % 60);
+            let id = st.unix as u64 ^ (food_count as u64);
+            st.store.fitness.food_logs.entry(today.clone()).or_default().push(FoodEntry {
+                id,
+                time: time_str,
+                name: text.to_string(),
+                calories: cal,
+                protein_g: prot,
+                carbs_g: carb,
+                fat_g: fat,
+            });
+            st.ui.fitness_food_input.clear();
+            st.save();
+        }
+    }
+
+    // 3. Quick preset chips
+    let preset_y = input_y + 34.0;
+    let presets = [
+        "Nasi Padang",
+        "Ayam Geprek",
+        "Telur Rebus 2x",
+        "Kopi Susu",
+        "Dada Ayam 150g",
+        "Pisang",
+    ];
+    let mut px = r.x;
+    for (i, p) in presets.iter().enumerate() {
+        let pw = ui.pill_width(p, false, true);
+        if px + pw > r.right() {
+            break;
+        }
+        let b = Rect::new(px, preset_y, pw, 22.0);
+        if ui.pill(wid_n("food.preset", i as u64), b, p, None, PillStyle::Utility).clicked {
+            let (cal, prot, carb, fat) = estimate_food(p);
+            let time_str = format!("{:02}:{:02}", (st.unix / 3600) % 24, (st.unix / 60) % 60);
+            let id = st.unix as u64 ^ (food_count as u64 + i as u64);
+            st.store.fitness.food_logs.entry(today.clone()).or_default().push(FoodEntry {
+                id,
+                time: time_str,
+                name: p.to_string(),
+                calories: cal,
+                protein_g: prot,
+                carbs_g: carb,
+                fat_g: fat,
+            });
+            st.save();
+        }
+        px += pw + 6.0;
+    }
+
+    // 4. Logged items list (showing last 2 items with delete)
+    let list_y = preset_y + 28.0;
+    let items_preview = st.store.fitness.food_logs.get(&today).map(|list| {
+        list.iter().rev().take(2).cloned().collect::<Vec<_>>()
+    }).unwrap_or_default();
+
+    if items_preview.is_empty() {
+        ui.c.text("Belum ada makanan yang dicatat hari ini.", Rect::new(r.x, list_y + 8.0, r.w, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+    } else {
+        let mut item_y = list_y;
+        let mut to_remove = None;
+        for item in items_preview {
+            let row_r = Rect::new(r.x, item_y, r.w, 20.0);
+            let desc = format!("• {} - {} kkal (P:{:.0}g K:{:.0}g L:{:.0}g)", item.name, item.calories, item.protein_g, item.carbs_g, item.fat_g);
+            ui.c.text(&desc, Rect::new(row_r.x, row_r.y, row_r.w - 50.0, 18.0), &TextStyle::footnote());
+
+            let del_r = Rect::new(row_r.right() - 44.0, row_r.y - 1.0, 44.0, 18.0);
+            if ui.pill(wid_n("food.del", item.id), del_r, "Hapus", None, PillStyle::Utility).clicked {
+                to_remove = Some(item.id);
+            }
+            item_y += 20.0;
+        }
+        if let Some(del_id) = to_remove {
+            if let Some(list) = st.store.fitness.food_logs.get_mut(&today) {
+                list.retain(|f| f.id != del_id);
+                st.save();
+            }
+        }
     }
 }

@@ -55,6 +55,8 @@ pub struct Store {
     /// at least once, so it reads the Record page's links: Screen recorder
     /// shows from then on. 1.0.0 never writes, and its Record would do nothing.
     pub recorder_island: bool,
+    #[serde(default)]
+    pub fitness: crate::fitness::FitnessStore,
 }
 
 impl Default for Store {
@@ -71,6 +73,7 @@ impl Default for Store {
             stocks: crate::stocks::Watchlist::default(),
             caffeine: crate::caffeine::Log::default(),
             recorder_island: false,
+            fitness: crate::fitness::FitnessStore::default(),
         }
     }
 }
