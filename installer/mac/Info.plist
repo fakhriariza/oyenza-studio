@@ -6,13 +6,13 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Oyenza Studio</string>
+	<string>Ariza Studio</string>
 	<key>CFBundleName</key>
-	<string>Oyenza Studio</string>
+	<string>Ariza Studio</string>
 	<key>CFBundleExecutable</key>
 	<string>poni</string>
 	<key>CFBundleIconFile</key>
-	<string>OyenzaStudio</string>
+	<string>ArizaStudio</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.oyenza.poni</string>
 	<key>CFBundleInfoDictionaryVersion</key>

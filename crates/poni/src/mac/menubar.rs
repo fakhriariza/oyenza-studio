@@ -68,7 +68,7 @@ fn item(label: &str, cmd: MenuCmd, checked: bool) -> MenuItem {
 /// Move island to the centre shows while `s.island_x` is set (the app
 /// passes it only where the island moves). `update`: a later version the
 /// update file offers, or Check for updates… (`crate::updates::menu_line`).
-pub fn menu_items(s: &Settings, pinned: bool, login: Login, recorder: bool, oyenza: &OyenzaLink, update: UpdateLine) -> Vec<MenuItem> {
+pub fn menu_items(s: &Settings, pinned: bool, login: Login, _recorder: bool, _oyenza: &OyenzaLink, update: UpdateLine) -> Vec<MenuItem> {
     let theme = |label: &str, t: Theme| item(label, MenuCmd::SetTheme(t), s.theme == t);
     let fullscreen = |label: &str, hide: bool| item(label, MenuCmd::SetHideFullscreen(hide), s.hide_in_fullscreen == hide);
     // The theme's own idle looks (the status bar is Pill's), the one it
@@ -98,7 +98,6 @@ pub fn menu_items(s: &Settings, pinned: bool, login: Login, recorder: bool, oyen
         item("Synced lyrics", MenuCmd::ToggleLyrics, s.lyrics),
         item("Lyrics pronunciation (romaji, pinyin, Korean)", MenuCmd::TogglePronunciation, s.lyrics_pronunciation),
         apple_music_menu(),
-        oyenza_menu(s, oyenza),
         item("Sounds", MenuCmd::ToggleSounds, s.sounds),
         MenuItem::Sub { label: "In full-screen apps".into(), items: vec![fullscreen("Hide", true), fullscreen("Stay on top", false)] },
         match login {
@@ -112,22 +111,18 @@ pub fn menu_items(s: &Settings, pinned: bool, login: Login, recorder: bool, oyen
         item("Open data folder", MenuCmd::OpenDataFolder, false),
         item(&crate::version::about_label(), MenuCmd::About, false),
         MenuItem::Separator,
-        MenuItem::Item { label: "Quit Oyenza Studio".into(), cmd: MenuCmd::Quit, checked: false, key: "q" },
+        MenuItem::Item { label: "Quit Ariza Studio".into(), cmd: MenuCmd::Quit, checked: false, key: "q" },
     ];
     // Only while the island sits off the middle, under Keep island open.
     if s.island_x.is_some() {
         let at = items.iter().position(|i| matches!(i, MenuItem::Item { cmd: MenuCmd::TogglePinned, .. })).map_or(items.len(), |i| i + 1);
         items.insert(at, item("Move island to the centre", MenuCmd::CentreIsland, false));
     }
-    // Only once the separate recorder app is installed: until then the
-    // island doesn't mention recording at all.
-    if recorder {
-        items.splice(0..0, [item("Record this screen", MenuCmd::RecordScreen, false), MenuItem::Separator]);
-    }
+
     match update {
         // A new version first, until it is installed.
         UpdateLine::Offer(v) => {
-            items.splice(0..0, [item(&format!("Update to Oyenza Studio {v}…"), MenuCmd::Update, false), MenuItem::Separator]);
+            items.splice(0..0, [item(&format!("Update to Ariza Studio {v}…"), MenuCmd::Update, false), MenuItem::Separator]);
         }
         // Otherwise a look on request, under About (as in most Mac apps).
         UpdateLine::Check => {
@@ -137,23 +132,6 @@ pub fn menu_items(s: &Settings, pinned: bool, login: Login, recorder: bool, oyen
         UpdateLine::None => {}
     }
     items
-}
-
-/// Oyenza, optional: sign in with a code from oyenza.app, then what the
-/// island may show, and signing out (as in the Windows tray).
-fn oyenza_menu(s: &Settings, link: &OyenzaLink) -> MenuItem {
-    let items = match link {
-        OyenzaLink::Off => vec![item("Sign in to Oyenza…", MenuCmd::OyenzaSignIn, false)],
-        OyenzaLink::Connecting { .. } => vec![item("Cancel sign-in", MenuCmd::OyenzaCancel, false)],
-        OyenzaLink::Connected { account } => vec![
-            MenuItem::Info { label: format!("Connected as {account}") },
-            item("Show amounts on the island", MenuCmd::ToggleOyenzaAmounts, s.oyenza_show_amounts),
-            item("Open oyenza.app", MenuCmd::OyenzaOpen, false),
-            MenuItem::Separator,
-            item("Disconnect", MenuCmd::OyenzaDisconnect, false),
-        ],
-    };
-    MenuItem::Sub { label: "Oyenza".into(), items }
 }
 
 /// Opt-in lyrics from Apple Music with the person's own token.
@@ -218,7 +196,7 @@ impl MenuBar {
                 Some(img) => button.setImage(Some(&img)),
                 None => button.setTitle(&NSString::from_str("Poni")),
             }
-            button.setToolTip(Some(&NSString::from_str(&format!("Oyenza Studio {}", crate::version::VERSION))));
+            button.setToolTip(Some(&NSString::from_str(&format!("Ariza Studio {}", crate::version::VERSION))));
         }
         let target: Retained<MenuTarget> = unsafe { objc2::msg_send![MenuTarget::alloc(mtm), init] };
         let menu = build(mtm, &target, &menu_items(s, pinned, login, crate::services::recorder::installed(), oyenza, update));

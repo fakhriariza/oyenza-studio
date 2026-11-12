@@ -164,4 +164,10 @@ pub enum AppEvent {
     VoiceEnded,
     /// The IELTS coach's microphone stopped by itself, or the person said no to macOS's question (`services::mic`).
     MicFailed(String),
+    /// DeepSeek harness and AI agent notification.
+    HarnessNotice {
+        title: String,
+        subtitle: String,
+        status: String,
+    },
 }

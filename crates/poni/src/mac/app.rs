@@ -579,6 +579,10 @@ pub struct App {
     rec_port: Option<services::recorder::Port>,
     /// When the island next asks whether the recorder still runs (mono seconds).
     rec_alive_at: f64,
+    /// DeepSeek harness and AI agent notification service.
+    harness: Option<services::harness::HarnessService>,
+    /// Last unix/mono timestamp of 30-min task reminder.
+    last_task_remind: f64,
 }
 
 /// A press on the closed island: let go where it was, it opens the island;
@@ -720,6 +724,8 @@ impl App {
             was_floating: false,
             rec_port: None,
             rec_alive_at: 0.0,
+            harness: None,
+            last_task_remind: 0.0,
         }
     }
 
@@ -745,41 +751,17 @@ impl App {
                 None
             }
         };
-        self.sync_addons();
-        // A meeting the app closed on, waiting to be written up.
-        if self.st.notes_on() && self.smoke.is_none() {
-            self.notes_restore();
-        }
-        self.schedule_update();
-        self.fetch_setup();
-        // Oyenza Studio Recorder installed: the Record tab can show (one
-        // Launch Services question); its port is open either way, for the
-        // recorder installed later.
-        if self.smoke.is_none() {
-            self.st.recorder = services::recorder::installed();
-        }
-        self.rec_port = services::recorder::listen();
-        if self.rec_port.is_none() {
-            pwarn!("recorder: the island's message port couldn't open");
-        }
         // Shelf tiles for what was left on the Shelf.
         for p in self.st.store.shelf.paths() {
             self.st.cmds.push(Command::LoadThumb(p));
         }
         self.schedule_minute_timer();
-        services::sysmon::watch_away(self.mtm, self.sink.clone());
+        self.prayer_ready();
+        self.harness = services::harness::HarnessService::start(self.sink.clone());
         services::fullscreen::watch(self.mtm, self.sink.clone());
-        // Signed in to Oyenza (or a sign-out still to tell it): the worker says
-        // who, then asks at its pace. Never signed in: nothing starts.
-        if paths::oyenza_link_path().exists() || paths::oyenza_revoke_path().exists() {
-            self.start_oyenza();
-        }
-        if self.st.settings.system_history_on() {
-            self.start_sysmon();
-        }
         if self.first_run && self.smoke.is_none() {
             let place = if self.screen.notch.is_some() { "Point at the notch to open it" } else { "Point at the island to open it" };
-            self.st.notify(Icon::CheckCircle, self.st.accent, "Oyenza Studio is on", place, 6.0, None);
+            self.st.notify(Icon::CheckCircle, self.st.accent, "Ariza Studio is on", place, 6.0, None);
         }
         if self.smoke.is_none() {
             if let Some(dir) = services::trash_app_from_before_rename() {
@@ -910,6 +892,7 @@ impl App {
                 // (the displays may sleep).
                 self.refresh_time();
                 self.prayer_tick();
+                self.task_reminder_tick();
             }
             Timer::Smoke => self.smoke_step(),
             Timer::Update => self.update_due(),
@@ -1855,6 +1838,50 @@ impl App {
                 self.apply_fullscreen();
             }
             AppEvent::Oyenza(ev) => self.on_oyenza(ev),
+            AppEvent::HarnessNotice { title, subtitle, status } => {
+                let is_acc = status == "acc" || status == "approval";
+                let is_done = status == "done" || status == "completed" || status == "ok";
+                let is_news = status == "news" || status == "running";
+                let (icon, color, secs) = if is_acc {
+                    (Icon::Bolt, palette::ORANGE, f64::INFINITY)
+                } else if is_done {
+                    (Icon::CheckCircle, palette::GREEN, 10.0)
+                } else if is_news {
+                    (Icon::Script, palette::BLUE, 14.0)
+                } else {
+                    (Icon::Ai, self.st.accent, 8.0)
+                };
+                let target_app = if is_news {
+                    "Google Chrome"
+                } else if title.to_lowercase().contains("deepseek") {
+                    "DeepSeek Harness"
+                } else if title.to_lowercase().contains("antigravity") {
+                    "Antigravity"
+                } else {
+                    "DeepSeek Harness"
+                };
+                let title_dim = if is_acc {
+                    "Needs Approval (acc)".to_string()
+                } else if is_done {
+                    "Finished".to_string()
+                } else if is_news {
+                    "AI Running · Berita Terkini".to_string()
+                } else {
+                    String::new()
+                };
+                self.st.notice = Some(Notice {
+                    icon,
+                    color,
+                    title,
+                    title_dim,
+                    subtitle,
+                    until: self.st.now + secs,
+                    action: Some(NoticeAction::OpenApp(target_app.to_string())),
+                    inline: if is_acc { Some(InlineAction::Open) } else { None },
+                    reveal: None,
+                });
+                services::play(true);
+            }
         }
         if let Some(before) = media_before {
             self.after_media_change(before, now);
@@ -2000,6 +2027,10 @@ impl App {
             return;
         }
         self.st.prayer.handled_until = Some(now);
+        // H-1 jam reminder (60 menit sebelum adzan)
+        for m in poni_core::prayer::prayers_between(&site, from + 3600, now + 3600) {
+            self.prayer_reminder_1h(m);
+        }
         for m in poni_core::prayer::prayers_between(&site, from, now) {
             match poni_core::prayer::due(m.at, now) {
                 Due::Ring => self.prayer_moment(m, true),
@@ -2007,6 +2038,67 @@ impl App {
                 Due::Skip => {}
             }
         }
+    }
+
+    /// H-1 jam (60 menit) sebelum waktu adzan tiba.
+    fn prayer_reminder_1h(&mut self, m: PrayerMoment) {
+        let Some(site) = self.st.prayer_site() else { return };
+        let place = self.st.prayer.place.as_ref().map_or(String::new(), |p| p.label.clone());
+        let title = format!("60 Menit Menuju {}", m.prayer.name());
+        let subtitle = format!("Waktu {} \u{b7} {place}", site.hhmm(m.at));
+        services::play(true);
+        self.st.notify(Icon::Moon, self.st.accent, title, subtitle, 20.0, Some(NoticeAction::OpenPage(PageKind::Prayer)));
+        pinfo!("prayer: 60 min reminder for {} at {}", m.prayer.name(), site.hhmm(m.at));
+    }
+
+    /// Ingetin task apa yang belum dikerjain setiap 30 menit.
+    fn task_reminder_tick(&mut self) {
+        let now = self.st.now;
+        // 30 menit = 1800 detik
+        if self.last_task_remind > 0.0 && (now - self.last_task_remind) < 1800.0 {
+            return;
+        }
+        if self.last_task_remind == 0.0 {
+            self.last_task_remind = now;
+            return;
+        }
+        self.last_task_remind = now;
+
+        let day_start = self.st.day_start_unix();
+        let uncompleted: Vec<String> = self.st.store.tasks.display_order(day_start)
+            .into_iter()
+            .filter(|t| !t.done)
+            .map(|t| t.text.clone())
+            .collect();
+
+        if uncompleted.is_empty() {
+            return;
+        }
+
+        let n = uncompleted.len();
+        let title = if n == 1 {
+            "Ada 1 Task Belum Selesai".to_string()
+        } else {
+            format!("Ada {n} Task Belum Selesai")
+        };
+        let subtitle = if n == 1 {
+            format!("• {}", uncompleted[0])
+        } else if n == 2 {
+            format!("• {} · {}", uncompleted[0], uncompleted[1])
+        } else {
+            format!("• {} · {} (+{} lainnya)", uncompleted[0], uncompleted[1], n - 2)
+        };
+
+        services::play(true);
+        self.st.notify(
+            Icon::ListChecks,
+            self.st.accent,
+            title,
+            subtitle,
+            16.0,
+            Some(NoticeAction::OpenPage(PageKind::Tasks)),
+        );
+        pinfo!("tasks: reminded {n} uncompleted task(s)");
     }
 
     /// A prayer's time came: the island says so and plays the chosen sound.
@@ -2601,7 +2693,11 @@ impl App {
             match n.action {
                 Some(NoticeAction::OpenPage(p)) => self.st.page = p,
                 Some(NoticeAction::OpenUpdate) => self.st.open_update(),
-                Some(NoticeAction::OpenApp(_)) => {}
+                Some(NoticeAction::OpenApp(ref app_name)) => {
+                    services::activate_app(app_name);
+                    self.st.notice = None;
+                    return;
+                }
                 Some(NoticeAction::StartFocus) => {
                     self.st.page = PageKind::Focus;
                     if !self.st.pomodoro.is_active() {
@@ -2867,6 +2963,12 @@ impl App {
         }
         if a == InlineAction::WhatsNew && self.st.notice.as_ref().is_some_and(|n| n.icon != Icon::Check) {
             services::open(&crate::version::notes_url());
+        }
+        if a == InlineAction::Open {
+            if let Some(Notice { action: Some(NoticeAction::OpenApp(ref app_name)), .. }) = self.st.notice.take() {
+                services::activate_app(app_name);
+                return;
+            }
         }
         let st = &mut self.st;
         if st.notice.as_ref().is_none_or(|n| n.icon == Icon::Check) {
@@ -3625,23 +3727,14 @@ impl App {
         self.ielts_tick();
         self.notes_tick();
         self.check_recorder_alive(false);
-        // Prayer times, System, Health, Stocks, Screen recorder, AI usage, IELTS
-        // or Downloader switched off: its tab is gone.
+        // If an inactive page or addons is set, redirect to Media.
         let gone = match self.st.page {
             PageKind::Prayer => !self.st.prayer_on(),
-            PageKind::System => !self.st.system_on(),
-            PageKind::Health => !self.st.health_on(),
-            PageKind::Stocks => !self.st.stocks_on(),
-            PageKind::Caffeine => !self.st.caffeine_on(),
-            PageKind::Record => !self.st.record_on(),
-            PageKind::Ielts => !self.st.ielts_on(),
-            PageKind::Downloads => !self.st.downloader_on(),
-            PageKind::Notes => !self.st.notes_on(),
-            PageKind::Ai => !self.st.ai_usage_on(),
+            PageKind::Addons => true,
             _ => false,
         };
         if gone {
-            self.st.page = PageKind::Addons;
+            self.st.page = PageKind::Media;
         }
     }
 

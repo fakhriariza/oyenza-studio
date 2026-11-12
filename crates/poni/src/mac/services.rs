@@ -39,6 +39,8 @@ pub mod romanize;
 pub mod secret;
 #[path = "services/smc.rs"]
 pub mod smc;
+#[path = "services/harness.rs"]
+pub mod harness;
 // Lyrics (LRCLIB, and Apple Music's own with the person's token) are the
 // Windows app's code, shared as is: only its HTTP client, token store and
 // romaji readings above are the Mac's.
@@ -181,6 +183,20 @@ pub fn open(target: &str) {
         }
         None => pwarn!("not a URL: {target}"),
     }
+}
+
+/// Bring an application window to the front.
+pub fn activate_app(name: &str) {
+    let lower = name.to_lowercase();
+    let app_name = match lower.as_str() {
+        "deepseek" | "deepseek harness" | "dsh" => "DeepSeek Harness",
+        "antigravity" | "agy" => "Antigravity",
+        _ => name,
+    };
+    let _ = std::process::Command::new("open")
+        .arg("-a")
+        .arg(app_name)
+        .spawn();
 }
 
 /// The gentle chime (timer finished): one of macOS's own alert sounds.

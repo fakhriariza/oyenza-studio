@@ -32,7 +32,7 @@ use crate::gfx::{Image, TextStyle, Weight};
 use crate::icons::Icon;
 use crate::pages::media::{self as classic, Anim, Frame, LyricsCtx};
 use crate::state::AppState;
-use crate::ui::{wid, Ui, WidgetId};
+use crate::ui::{wid, wid_n, PillStyle, Ui, WidgetId};
 use poni_core::datetime::fmt_duration;
 use poni_core::geom::{lerp, palette, Color, Point, Rect};
 use poni_core::addons;
@@ -354,8 +354,15 @@ fn tracked(ui: &mut Ui, s: &str, r: Rect, st: &TextStyle) {
     }
 }
 
-/// Nothing playing: the card keeps the player's first row, a blank tile with
-/// the note and what to do, and nothing that would pretend to control.
+#[derive(serde::Deserialize, Clone)]
+struct SpotifyPlaylist {
+    name: String,
+    uri: String,
+    #[serde(default)]
+    tracks_total: usize,
+}
+
+/// Nothing playing: connect Spotify or choose playlist directly from bar.
 fn draw_empty(ui: &mut Ui, area: Rect) {
     let scale = ui.c.scale().max(0.5);
     let (x0, y0) = (classic::snap(area.x, scale), classic::snap(area.y, scale));
@@ -363,9 +370,49 @@ fn draw_empty(ui: &mut Ui, area: Rect) {
     let tx = classic::snap(x0 + ART + GAP_ART, scale);
     let tw = (area.right() - tx).max(0.0);
     let title = TextStyle::value();
-    ui.c.text("Nothing playing", row(tx, tw, y0 + EMPTY_TITLE_CAP, title.size), &title);
-    let hint = TextStyle::body().color(palette::TEXT_DIM);
-    ui.c.text("Play music in Spotify, a browser or any media app", row(tx, tw, y0 + EMPTY_HINT_CAP, hint.size), &hint);
+    ui.c.text("Spotify & Media", row(tx, tw, y0 + EMPTY_TITLE_CAP, title.size), &title);
+
+    let playlists: Vec<SpotifyPlaylist> = std::fs::read_to_string("/tmp/ariza_spotify_playlists.json")
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+
+    if playlists.is_empty() {
+        let hint = TextStyle::body().color(palette::TEXT_DIM);
+        ui.c.text("Hubungkan Spotify Web API untuk milih langsung:", row(tx, tw, y0 + EMPTY_HINT_CAP, hint.size), &hint);
+        let btn_w = ui.pill_width("Connect Spotify (Web API)", false, true);
+        let btn = Rect::new(tx, y0 + 60.0, btn_w, 28.0);
+        if ui.pill(wid("music.spotify-connect"), btn, "Connect Spotify (Web API)", None, PillStyle::Primary(palette::GREEN)).clicked {
+            let _ = std::process::Command::new("/usr/bin/python3")
+                .arg("/Users/dikshatek/Downloads/oyenza-studio/ariza-spotify.py")
+                .arg("login")
+                .spawn();
+        }
+    } else {
+        let hint = TextStyle::footnote().color(palette::TEXT_DIM);
+        ui.c.text("Pilih Playlist Spotify Langsung:", row(tx, tw, y0 + EMPTY_HINT_CAP - 6.0, hint.size), &hint);
+        let mut px = tx;
+        for (i, p) in playlists.iter().take(4).enumerate() {
+            let label = if p.name.len() > 16 {
+                format!("{}…", &p.name[..15])
+            } else {
+                p.name.clone()
+            };
+            let pw = ui.pill_width(&label, false, true);
+            if px + pw > area.right() {
+                break;
+            }
+            let b = Rect::new(px, y0 + 56.0, pw, 26.0);
+            if ui.pill(wid_n("music.spotify-play", i as u64), b, &label, None, PillStyle::Primary(palette::GREEN)).clicked {
+                let _ = std::process::Command::new("/usr/bin/python3")
+                    .arg("/Users/dikshatek/Downloads/oyenza-studio/ariza-spotify.py")
+                    .arg("play")
+                    .arg(&p.uri)
+                    .spawn();
+            }
+            px += pw + 8.0;
+        }
+    }
 }
 
 /// A one-line, vertically centred text box whose capitals start at `cap_top`.

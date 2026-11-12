@@ -22,7 +22,7 @@ use crate::commands::{Command, MediaCmd};
 use crate::gfx::{ts, TextStyle, Weight};
 use crate::icons::Icon;
 use crate::state::{AppState, LyricsState, LyricsStatus, MediaSession, PageUiState};
-use crate::ui::{wid, wid_n, Ui, WidgetId};
+use crate::ui::{wid, wid_n, PillStyle, Ui, WidgetId};
 use poni_core::addons;
 use poni_core::datetime::fmt_duration;
 use poni_core::geom::{lerp, palette, Color, Point, Rect};
@@ -325,7 +325,15 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
         draw_session(ui, st, area, &mut a, &fr);
     } else {
         let r = Rect::new(area.x, area.y, area.w, H_EMPTY);
-        super::empty_state(ui, r, Icon::Music, "Nothing playing", "Play music in Spotify, a browser or any media app");
+        super::empty_state(ui, r, Icon::Music, "Spotify & Media", "Hubungkan Spotify Web API untuk milih lagu langsung dari bar");
+        let btn_w = ui.pill_width("Connect Spotify (Web API)", false, true);
+        let btn = Rect::new(r.center().x - btn_w / 2.0, r.y + 82.0, btn_w, 26.0);
+        if ui.pill(wid("media.spotify-connect"), btn, "Connect Spotify (Web API)", None, PillStyle::Primary(palette::GREEN)).clicked {
+            let _ = std::process::Command::new("/usr/bin/python3")
+                .arg("/Users/dikshatek/Downloads/oyenza-studio/ariza-spotify.py")
+                .arg("login")
+                .spawn();
+        }
     }
     put_anim(a);
 }

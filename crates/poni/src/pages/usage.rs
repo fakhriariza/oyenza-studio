@@ -832,53 +832,78 @@ fn connect_code(ui: &mut Ui, st: &AppState, r: Rect, view: Rect, code: &str, url
 // ---------------------------------------------------------------- nothing found
 
 /// No card to show: what the tab looks for, Add a key, and Oyenza Inference.
-fn empty(ui: &mut Ui, st: &mut AppState, r: Rect) {
-    const BADGE: f32 = 52.0;
-    let looking = st.usage.readings.is_empty();
-    let title = if looking { "Looking for your AI tools…" } else { "No AI plans found on this computer" };
-    // Looked for here: every service with something to read on the computer
-    // (OpenCode Go and Kimi Code too, though they also take a key); a key:
-    // every service that takes one. The worker's own rule decides which is which.
-    let dirs = usage::Dirs::sample(if cfg!(target_os = "macos") { usage::Os::Mac } else { usage::Os::Windows });
-    let ids = ProviderId::ALL.into_iter().filter(|id| *id != ProviderId::Oyenza);
-    let found: Vec<ProviderId> = ids.clone().filter(|id| !usage::pace::typed_key_only(&usage::provider(*id).wants(&dirs), false)).collect();
-    let keyed: Vec<ProviderId> = ids.filter(|id| usage::provider(*id).takes_key().is_some()).collect();
-    let mut body = format!("Studio looks for {} on this computer.", names(&found, "and"));
-    if !keyed.is_empty() {
-        body.push_str(&format!(" Add a key for {}.", names(&keyed, "or")));
+#[derive(serde::Deserialize, Clone)]
+struct NewsItem {
+    source: String,
+    title: String,
+    link: String,
+}
+
+fn empty(ui: &mut Ui, _st: &mut AppState, r: Rect) {
+    let title_st = TextStyle::headline();
+    let sub_st = TextStyle::footnote().color(palette::TEXT_DIM);
+
+    // AI Status Header
+    let cy = r.y + 16.0;
+    ui.c.fill_circle(Point::new(r.x + 8.0, cy), 5.0, palette::GREEN);
+    ui.c.text("DeepSeek Harness & Antigravity Ready", Rect::new(r.x + 20.0, r.y + 4.0, r.w - 120.0, 22.0), &title_st);
+
+    let refresh_w = ui.pill_width("Refresh Berita", false, true);
+    let ref_b = Rect::new(r.right() - refresh_w, r.y + 4.0, refresh_w, PILL_SMALL);
+    if ui.pill(wid("usage.news-refresh"), ref_b, "Refresh Berita", None, PillStyle::Utility).clicked {
+        let _ = std::process::Command::new("/usr/bin/python3")
+            .arg("/Users/dikshatek/Downloads/oyenza-studio/ariza-news.py")
+            .spawn();
     }
-    let x = r.x + BADGE + 18.0;
-    let w = (r.w - BADGE - 18.0).clamp(0.0, 440.0);
-    let title_st = TextStyle::headline().wrap().top();
-    let body_st = TextStyle::footnote().color(palette::TEXT_DIM).wrap().top();
-    let (_, th) = ui.c.measure(title, &title_st, w);
-    let (_, bh) = ui.c.measure(&body, &body_st, w);
-    let block = th + 4.0 + bh + if looking { 0.0 } else { 12.0 + PILL_SMALL };
-    let mut y = r.y + ((r.h - block) / 2.0).max(0.0);
-    let c = Point::new(r.x + BADGE / 2.0, r.y + r.h / 2.0);
-    ui.c.fill_circle(c, BADGE / 2.0, st.accent.with_alpha(0.18));
-    ui.c.icon(PageKind::Ai.icon(), Rect::from_center(c, 24.0, 24.0), st.accent);
-    ui.c.text(title, Rect::new(x, y, w, th + 1.0), &title_st);
-    y += th + 4.0;
-    ui.c.text(&body, Rect::new(x, y, w, bh + 1.0), &body_st);
-    if looking {
+
+    ui.c.text("Berita terkini realtime (sambil nunggu AI selesai):", Rect::new(r.x + 4.0, r.y + 28.0, r.w - 8.0, 18.0), &sub_st);
+
+    // Read real-time news from /tmp/ariza_news.json
+    let news_items: Vec<NewsItem> = std::fs::read_to_string("/tmp/ariza_news.json")
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+
+    if news_items.is_empty() {
+        // Trigger background fetch if not yet fetched
+        let _ = std::process::Command::new("/usr/bin/python3")
+            .arg("/Users/dikshatek/Downloads/oyenza-studio/ariza-news.py")
+            .spawn();
+        ui.c.text("Mengambil headline berita terbaru...", Rect::new(r.x + 4.0, r.y + 60.0, r.w, 20.0), &sub_st);
         return;
     }
-    y += bh + 12.0;
-    let add_w = ui.pill_width("Add a key", true, true);
-    let add = Rect::new(x, y, add_w, PILL_SMALL);
-    if ui.pill(wid("usage.empty-add"), add, "Add a key", Some(Icon::Plus), PillStyle::Primary(st.accent)).clicked {
-        let first = keyed.first().copied();
-        st.ui.usage.switch(true);
-        if let Some(id) = first {
-            open_key(&mut st.ui.usage, id);
+
+    let mut item_y = r.y + 52.0;
+    let row_h = 44.0;
+    for (i, item) in news_items.iter().take(4).enumerate() {
+        let card = Rect::new(r.x, item_y, r.w, row_h);
+        let resp = ui.button(wid_n("usage.news", i as u64), card);
+        let hover = resp.hovered;
+
+        // Card background
+        ui.c.fill_rrect(card, 8.0, if hover { Color::white(0.12) } else { Color::white(0.06) });
+
+        // Source badge
+        let badge_w = 48.0;
+        let badge_rect = Rect::new(card.x + 8.0, card.y + 12.0, badge_w, 20.0);
+        let badge_color = if item.source == "CNBC" { palette::ORANGE } else { palette::BLUE };
+        ui.c.fill_rrect(badge_rect, 4.0, badge_color.with_alpha(0.25));
+        ui.c.text(&item.source, badge_rect, &TextStyle::caption().color(badge_color).center());
+
+        // Headline text
+        let title_rect = Rect::new(badge_rect.right() + 10.0, card.y + 12.0, card.w - badge_w - 70.0, 20.0);
+        ui.c.text(&item.title, title_rect, &TextStyle::body().weight(Weight::Medium));
+
+        // Read pill
+        let read_rect = Rect::new(card.right() - 54.0, card.y + 11.0, 46.0, 22.0);
+        ui.c.text("Buka ↗", read_rect, &TextStyle::footnote().color(palette::TEXT_DIM).center());
+
+        if resp.clicked {
+            #[cfg(target_os = "macos")]
+            crate::services::open(&item.link);
         }
-    }
-    let label = "Connect Oyenza Inference";
-    let cw = ui.pill_width(label, false, true);
-    let connect = Rect::new(add.right() + PILL_GAP, y, cw, PILL_SMALL);
-    if connect.right() <= r.right() + 0.5 && ui.pill(wid("usage.empty-connect"), connect, label, None, PillStyle::Utility).clicked {
-        act(ui, st, ProviderId::Oyenza, Does::Connect);
+
+        item_y += row_h + 6.0;
     }
 }
 

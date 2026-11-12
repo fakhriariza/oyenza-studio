@@ -18,23 +18,21 @@ use poni_core::geom::{palette, Color, Point, Rect};
 use std::cell::{Cell, RefCell};
 
 /// Two lines (title and subtitle) in a capsule: r = h / 2.
-const H: f32 = 48.0;
-/// As wide as the words, between these. The widest is Classic's notice, so
-/// Pill never covers more of the screen and always leaves the words more
-/// room than Classic does.
-const MIN_W: f32 = 200.0;
-const MAX_W: f32 = 372.0;
-/// The disc, concentric with the left end (inset 8 at r 24), and its glyph.
-const DISC: f32 = 32.0;
-const GLYPH: f32 = 16.0;
+const H: f32 = 64.0;
+/// As wide as the words, between these. Generously sized so it is immediately noticed.
+const MIN_W: f32 = 360.0;
+const MAX_W: f32 = 560.0;
+/// The disc, concentric with the left end, and its glyph.
+const DISC: f32 = 42.0;
+const GLYPH: f32 = 22.0;
 /// Where the words start, and how far they keep from the right end.
-const TEXT_X: f32 = 8.0 + DISC + 10.0;
-const TEXT_END: f32 = 20.0;
+const TEXT_X: f32 = 8.0 + DISC + 14.0;
+const TEXT_END: f32 = 24.0;
 /// The action pill: Classic's size, its round end concentric with the
 /// notice's (24 - 14), and Classic's gap before it.
 const ACT_INSET: f32 = H / 2.0 - PILL_SMALL / 2.0;
-const ACT_GAP: f32 = 12.0;
-const ACT_MIN_W: f32 = 76.0;
+const ACT_GAP: f32 = 14.0;
+const ACT_MIN_W: f32 = 84.0;
 /// Over a fill this light the glyph turns dark (white, yellow).
 const LIGHT_FILL: f32 = 0.75;
 
@@ -49,11 +47,11 @@ thread_local! {
 }
 
 fn title_style() -> TextStyle {
-    TextStyle::body().weight(Weight::Semibold)
+    TextStyle::headline().weight(Weight::Bold)
 }
 
 fn subtitle_style() -> TextStyle {
-    TextStyle::footnote().color(palette::TEXT_DIM)
+    TextStyle::body().color(palette::TEXT_DIM)
 }
 
 /// What the width depends on: the words on screen and whether a pill sits
@@ -192,9 +190,8 @@ fn draw_notice(ui: &mut Ui, st: &AppState, n: &Notice, body: Rect) {
     let tx = lay.x + TEXT_X;
     let text_right = act.as_ref().map_or(lay.right() - TEXT_END, |(.., r)| r.x - ACT_GAP);
     let tw = (text_right - tx).max(0.0);
-    // Baselines about 22 and 37 DIP down the 48, as the spec has them.
-    crate::activities::notice_title(ui, n, Rect::new(tx, cy - 17.0, tw, 20.0), title_st);
-    ui.c.text(&n.subtitle, Rect::new(tx, cy, tw, 16.0), &sub_st);
+    crate::activities::notice_title(ui, n, Rect::new(tx, cy - 20.0, tw, 22.0), title_st);
+    ui.c.text(&n.subtitle, Rect::new(tx, cy + 2.0, tw, 20.0), &sub_st);
 
     // The whole notice is a button (handled on mouse-down by the app); the
     // inline pill is registered after it so it wins the hit test.

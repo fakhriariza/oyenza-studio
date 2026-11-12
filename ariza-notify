@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# ariza-notify: Send notifications from DeepSeek harness or terminal to Ariza Studio Dynamic Island.
+#
+# Usage:
+#   ariza-notify --acc "Perlu approval untuk git push atau bash command"
+#   ariza-notify --done "Evaluasi 50 task benchmark selesai"
+#   ariza-notify --running (fetches and displays real-time news headline preview)
+#   ariza-notify --news
+#   ariza-notify --info "Status update"
+
+PORT=48123
+STATUS="info"
+TITLE="DeepSeek Harness"
+MESSAGE=""
+IS_NEWS=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --acc|--approval)
+      STATUS="acc"
+      shift
+      ;;
+    --done|--complete|--finished)
+      STATUS="done"
+      shift
+      ;;
+    --running|--news)
+      STATUS="news"
+      IS_NEWS=true
+      shift
+      ;;
+    --info)
+      STATUS="info"
+      shift
+      ;;
+    --title)
+      TITLE="$2"
+      shift 2
+      ;;
+    *)
+      if [ -z "$MESSAGE" ]; then
+        MESSAGE="$1"
+      else
+        MESSAGE="$MESSAGE $1"
+      fi
+      shift
+      ;;
+  esac
+done
+
+if [ "$IS_NEWS" = true ]; then
+  # Fetch real-time news preview if not supplied
+  if [ -z "$MESSAGE" ]; then
+    NEWS_RES=$(/usr/bin/python3 -c "
+import json, os
+try:
+    if not os.path.exists('/tmp/ariza_news.json'):
+        import subprocess
+        subprocess.run(['/usr/bin/python3', '/Users/dikshatek/Downloads/oyenza-studio/ariza-news.py'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    with open('/tmp/ariza_news.json') as f:
+        items = json.load(f)
+    if items:
+        print(f\"{items[0]['source']}|{items[0]['title']}\")
+except Exception:
+    pass
+")
+    if [ -n "$NEWS_RES" ]; then
+      SOURCE=$(echo "$NEWS_RES" | cut -d'|' -f1)
+      HEADLINE=$(echo "$NEWS_RES" | cut -d'|' -f2-)
+      TITLE="[$SOURCE] $HEADLINE"
+      MESSAGE="AI sedang bekerja · Klik untuk baca berita terkini"
+    else
+      TITLE="AI sedang bekerja"
+      MESSAGE="Memproses instruksi kamu..."
+    fi
+  fi
+fi
+
+if [ -z "$MESSAGE" ]; then
+  if [ "$STATUS" = "acc" ]; then
+    MESSAGE="Needs your approval (acc) to continue"
+  elif [ "$STATUS" = "done" ]; then
+    MESSAGE="AI task completed / AI udah beres!"
+  else
+    MESSAGE="Notification from harness"
+  fi
+fi
+
+# Send JSON payload to Ariza Studio
+curl -s -X POST "http://127.0.0.1:$PORT/notify" \
+  -H "Content-Type: application/json" \
+  -d "{\"title\": $(python3 -c "import json; print(json.dumps('$TITLE'))"), \"subtitle\": $(python3 -c "import json; print(json.dumps('$MESSAGE'))"), \"status\": \"$STATUS\"}" > /dev/null
+
+if [ $? -eq 0 ]; then
+  echo "✓ Notifikasi '$TITLE ($STATUS)' terkirim ke Ariza Studio Dynamic Island"
+else
+  echo "✗ Gagal mengirim notifikasi (pastikan Ariza Studio sedang berjalan di port $PORT)"
+fi

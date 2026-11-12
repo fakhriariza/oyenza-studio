@@ -105,28 +105,14 @@ pub enum PageKind {
 }
 
 impl PageKind {
-    /// The tab row's order: the island's own pages, Oyenza, then the
-    /// add-ons' pages and the "+".
-    pub const ALL: [PageKind; 20] = [
+    /// The tab row's order in Ariza Studio: Music, AI, Shelf, Focus, Prayer, Tasks, Settings.
+    pub const ALL: [PageKind; 7] = [
         PageKind::Media,
-        PageKind::Today,
-        PageKind::Shelf,
-        PageKind::Tasks,
-        PageKind::Focus,
         PageKind::Ai,
-        PageKind::Oyenza,
-        PageKind::Health,
-        PageKind::Ielts,
-        PageKind::Notes,
-        PageKind::System,
-        PageKind::Script,
-        PageKind::Record,
+        PageKind::Shelf,
+        PageKind::Focus,
         PageKind::Prayer,
-        PageKind::Stocks,
-        PageKind::Caffeine,
-        PageKind::Downloads,
-        PageKind::Notifications,
-        PageKind::Addons,
+        PageKind::Tasks,
         PageKind::Settings,
     ];
 
@@ -230,36 +216,28 @@ impl PageKind {
     /// Notifications, which goes off with its tab (it's offered only where
     /// the copy can read notifications). Oyenza stays; the add-ons' pages come
     /// and go with their switches, AI's with Studio Pro.
-    pub const HIDEABLE: [PageKind; 6] = [PageKind::Media, PageKind::Today, PageKind::Shelf, PageKind::Tasks, PageKind::Focus, PageKind::Notifications];
+    pub const HIDEABLE: [PageKind; 6] = [
+        PageKind::Media,
+        PageKind::Ai,
+        PageKind::Shelf,
+        PageKind::Focus,
+        PageKind::Prayer,
+        PageKind::Tasks,
+    ];
 
     pub fn hideable(self) -> bool {
         Self::HIDEABLE.contains(&self)
     }
 }
 
-/// The tabs in the header: every page but Settings, AI only with Studio Pro,
-/// and Health, IELTS, Notes,
-/// System, Script, Record, Prayer and Stocks only while their add-ons are on.
-/// Music, Today, Shelf, Tasks and Focus unless Settings took them off the
-/// row; one of those still shows while its page is open (a file dropped on
-/// the island opens the Shelf). Notifications wherever the copy can read
-/// them, unless Settings switched it off. AI and Oyenza are always there
-/// (signed out, Oyenza is where to sign in). Add-ons is last, in both apps.
+/// The tabs in the header: every tabbed page in Ariza Studio.
 pub fn tabs(st: &AppState) -> Vec<PageKind> {
     row(st, Some(st.page))
 }
 
-/// The tabs Settings can switch off in this copy (its tabs row, and Tabs in
-/// the Settings window): the island's own pages, and Notifications, the
-/// last of [`PageKind::HIDEABLE`], only where the copy can read them
-/// (`AppState::notify_can`).
-pub fn hideable_tabs(st: &AppState) -> &'static [PageKind] {
-    let all = &PageKind::HIDEABLE;
-    if st.notify_can {
-        all
-    } else {
-        &all[..all.len() - 1]
-    }
+/// The tabs Settings can switch off in Ariza Studio.
+pub fn hideable_tabs(_st: &AppState) -> &'static [PageKind] {
+    &PageKind::HIDEABLE
 }
 
 /// Where the island goes when its page leaves the row (an add-on switched
@@ -269,26 +247,15 @@ pub fn first_tab(st: &AppState) -> PageKind {
     row(st, None)[0]
 }
 
-fn row(st: &AppState, open: Option<PageKind>) -> Vec<PageKind> {
-    PageKind::ALL
-        .into_iter()
-        .filter(|&p| match p {
-            PageKind::Health => st.health_on(),
-            PageKind::Ielts => st.ielts_on(),
-            PageKind::Notes => st.notes_on(),
-            PageKind::Ai => st.ai_usage_on(),
-            PageKind::System => st.system_on(),
-            PageKind::Prayer => st.prayer_on(),
-            PageKind::Script => st.script_on(),
-            PageKind::Stocks => st.stocks_on(),
-            PageKind::Caffeine => st.caffeine_on(),
-            PageKind::Downloads => st.downloader_on(),
-            PageKind::Record => st.record_on(),
-            PageKind::Notifications => st.notifications_on(),
-            p if p.hideable() => !st.tab_hidden(p) || open == Some(p),
-            p => p.tabbed(),
-        })
-        .collect()
+fn row(_st: &AppState, _open: Option<PageKind>) -> Vec<PageKind> {
+    vec![
+        PageKind::Media,
+        PageKind::Ai,
+        PageKind::Shelf,
+        PageKind::Focus,
+        PageKind::Prayer,
+        PageKind::Tasks,
+    ]
 }
 
 /// The tab after (or before) `p` among [`tabs`], wrapping around.
@@ -462,7 +429,7 @@ pub(crate) fn draw_page(ui: &mut Ui, st: &mut AppState, area: Rect, page: PageKi
         PageKind::Caffeine => caffeine::draw(ui, st, area),
         PageKind::Downloads => downloads::draw(ui, st, area),
         PageKind::Notifications => notifications::draw(ui, st, area),
-        PageKind::Addons => addons::draw(ui, st, area),
+        PageKind::Addons => media::draw(ui, st, area),
         PageKind::Settings => settings::draw(ui, st, area),
     }
 }
